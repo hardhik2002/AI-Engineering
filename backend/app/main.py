@@ -56,6 +56,11 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
             except (ImportError, OSError, RuntimeError):
                 pass
         model_status = detector.get_status()
+        model_installed_unloaded = (
+            model_status.state == "unavailable"
+            and bool(model_status.detail)
+            and model_status.detail.startswith("Weights installed")
+        )
         log_event(
             logging.getLogger("visionlab.server"),
             "server.started",
@@ -68,12 +73,14 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
             model=settings.detection_model,
             device=settings.detection_device,
             cuda_available=cuda_available,
-            model_state=model_status.state,
+            model_state="installed_not_loaded" if model_installed_unloaded else model_status.state,
             log_format=settings.log_format,
             log_directory=settings.log_directory.name,
             capabilities={
-                "image_object_detection": "available"
+                "image_object_detection": "ready"
                 if model_status.state == "ready"
+                else "installed_not_loaded"
+                if model_installed_unloaded
                 else "unavailable",
                 "captioning": "planned",
                 "vqa": "planned",
@@ -84,12 +91,10 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
             logging.getLogger("visionlab.model"),
             "model.status",
             "MODEL INSTALLED, NOT LOADED"
-            if model_status.state == "unavailable"
-            and model_status.detail
-            and model_status.detail.startswith("Weights installed")
+            if model_installed_unloaded
             else f"MODEL {model_status.state.replace('_', ' ').upper()}",
             model=settings.detection_model,
-            model_state=model_status.state,
+            model_state="installed_not_loaded" if model_installed_unloaded else model_status.state,
             device=model_status.device,
         )
         yield
@@ -179,6 +184,7 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
                 status_code=500,
                 duration_ms=duration,
                 error_code="internal_error",
+                error_category="server",
                 exception_type=type(exc).__name__,
                 traceback=safe_traceback(exc) if settings.environment == "development" else None,
             )
@@ -201,6 +207,7 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
                     status_code=response.status_code,
                     duration_ms=duration,
                     error_code=code,
+                    error_category="server" if response.status_code >= 500 else "client",
                 )
             else:
                 log_event(

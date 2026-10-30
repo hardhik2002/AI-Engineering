@@ -169,13 +169,15 @@ class ConsoleFormatter(logging.Formatter):
         for field in ("media_id", "analysis_id"):
             if payload.get(field):
                 parts.append(f"{field}={str(payload[field])[:8]}")
-        for field in ("model", "device", "run_kind", "media_type", "mime_type"):
+        for field in ("model", "device", "model_state", "run_kind", "media_type", "mime_type"):
             if payload.get(field):
                 parts.append(f"{field}={payload[field]}")
         if payload.get("width") is not None and payload.get("height") is not None:
             parts.append(f"size={payload['width']}x{payload['height']}")
         if payload.get("detection_count") is not None:
             parts.append(f"detections={payload['detection_count']}")
+        if payload.get("valid_box_count") is not None:
+            parts.append(f"valid_boxes={payload['valid_box_count']}")
         if isinstance(payload.get("class_counts"), dict):
             classes = ",".join(
                 f"{label}={count}" for label, count in payload["class_counts"].items()
@@ -184,11 +186,18 @@ class ConsoleFormatter(logging.Formatter):
                 parts.append(f"classes={classes}")
         for field in (
             "received_bytes",
+            "video_duration_ms",
             "status_code",
             "error_code",
+            "confidence",
+            "iou",
+            "image_size",
+            "max_detections",
             "model_load_ms",
             "decode_ms",
+            "preprocessing_ms",
             "inference_ms",
+            "postprocessing_ms",
             "persistence_ms",
             "duration_ms",
             "application_version",

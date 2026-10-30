@@ -268,6 +268,11 @@ def test_validation_failure_missing_media_and_empty_inference(settings: Settings
     assert any(
         item["event"] == "analysis.completed" and item["detection_count"] == 0 for item in records
     )
+    assert any(
+        item["event"] == "analysis.summary_computed"
+        and item["message"] == "COMPLETE 0 detections above inference threshold"
+        for item in records
+    )
     assert not any(item["event"] == "image.orientation_normalized" for item in records)
 
 

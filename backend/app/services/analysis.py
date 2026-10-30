@@ -301,7 +301,9 @@ class AnalysisService:
             log_event(
                 logger,
                 "analysis.summary_computed",
-                "COMPLETE Detection summary computed",
+                "COMPLETE 0 detections above inference threshold"
+                if not detections
+                else "COMPLETE Detection summary computed",
                 media_id=media_id,
                 analysis_id=analysis_id,
                 detection_count=len(detections),
