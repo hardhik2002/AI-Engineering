@@ -70,6 +70,34 @@ def _check_signature(path: Path, mime: str) -> None:
     }[mime]
     if not valid:
         raise MediaError("invalid_media", "File content does not match the declared format.")
+    if mime == "video/mp4":
+        _check_mp4_boxes(path)
+
+
+def _check_mp4_boxes(path: Path) -> None:
+    """Reject MP4 files whose top-level boxes claim bytes beyond the uploaded file."""
+    total = path.stat().st_size
+    position = 0
+    boxes = 0
+    with path.open("rb") as source:
+        while position < total:
+            if total - position < 8 or boxes >= 10000:
+                raise MediaError("invalid_media", "MP4 structure is incomplete.")
+            source.seek(position)
+            header = source.read(8)
+            box_size = int.from_bytes(header[:4], "big")
+            header_size = 8
+            if box_size == 1:
+                if total - position < 16:
+                    raise MediaError("invalid_media", "MP4 structure is incomplete.")
+                box_size = int.from_bytes(source.read(8), "big")
+                header_size = 16
+            elif box_size == 0:
+                box_size = total - position
+            if box_size < header_size or position + box_size > total:
+                raise MediaError("invalid_media", "MP4 structure is incomplete.")
+            position += box_size
+            boxes += 1
 
 
 def _inspect_image(path: Path, mime: str, settings: Settings, thumbnail: Path) -> tuple[int, int]:
@@ -333,11 +361,13 @@ class MediaService:
         thumbnail_ref = row["thumbnail_ref"]
         if thumbnail_ref is not None and thumbnail_ref != f"{media_id}.jpg":
             raise MediaError("media_not_found", "Media item was not found.", 404)
-        return (
-            asset,
-            self.media_root / expected,
-            self.thumbnail_root / thumbnail_ref if thumbnail_ref else None,
-        )
+        source = self.media_root / expected
+        thumbnail = self.thumbnail_root / thumbnail_ref if thumbnail_ref else None
+        if not source.resolve().is_relative_to(self.media_root):
+            raise MediaError("media_not_found", "Media item was not found.", 404)
+        if thumbnail and not thumbnail.resolve().is_relative_to(self.thumbnail_root):
+            raise MediaError("media_not_found", "Media item was not found.", 404)
+        return asset, source, thumbnail
 
     def delete(self, media_id: str) -> None:
         _, source, thumbnail = self.paths(media_id)

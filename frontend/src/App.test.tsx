@@ -4,7 +4,7 @@ import { MemoryRouter } from 'react-router-dom'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import App from './App'
 import { getCapabilities, getHealth } from '@/lib/api'
-import { listMedia, uploadMedia } from '@/lib/media'
+import { getMediaLimits, listMedia, uploadMedia } from '@/lib/media'
 import { useMediaStore } from '@/store/media'
 import { useThemeStore } from '@/store/theme'
 import type { MediaAsset } from '@/types/media'
@@ -12,7 +12,7 @@ import type { MediaAsset } from '@/types/media'
 vi.mock('@/lib/api', () => ({ getHealth: vi.fn(), getCapabilities: vi.fn() }))
 vi.mock('@/lib/media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/media')>()),
-  listMedia: vi.fn(), uploadMedia: vi.fn(), deleteMedia: vi.fn(),
+  listMedia: vi.fn(), getMediaLimits: vi.fn(), uploadMedia: vi.fn(), deleteMedia: vi.fn(),
 }))
 
 const imageAsset: MediaAsset = {
@@ -52,6 +52,7 @@ describe('VisionLab media workspace', () => {
       { id: 'video_preview', name: 'Video Preview', status: 'available', phase: 2 },
     ])
     vi.mocked(listMedia).mockResolvedValue([])
+    vi.mocked(getMediaLimits).mockResolvedValue({ max_image_bytes: 20971520, max_video_bytes: 262144000, max_video_duration_ms: 600000, max_image_pixels: 40000000 })
   })
 
   it('keeps the empty state and reports AI capabilities as planned', async () => {

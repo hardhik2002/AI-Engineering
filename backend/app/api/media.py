@@ -5,7 +5,7 @@ from typing import Annotated
 from fastapi import APIRouter, File, Query, Request, UploadFile
 from fastapi.responses import FileResponse, Response, StreamingResponse
 
-from app.schemas.media import ApiError, MediaAsset
+from app.schemas.media import ApiError, MediaAsset, MediaLimits
 from app.services.media import CHUNK_SIZE, MediaError, MediaService, parse_byte_range
 
 router = APIRouter(prefix="/api/v1/media", tags=["media"])
@@ -20,6 +20,17 @@ ERRORS = {
 
 def service(request: Request) -> MediaService:
     return request.app.state.media_service
+
+
+@router.get("/limits", response_model=MediaLimits)
+def media_limits(request: Request) -> MediaLimits:
+    settings = request.app.state.settings
+    return MediaLimits(
+        max_image_bytes=settings.max_image_bytes,
+        max_video_bytes=settings.max_video_bytes,
+        max_video_duration_ms=settings.max_video_duration_ms,
+        max_image_pixels=settings.max_image_pixels,
+    )
 
 
 @router.post("/upload", response_model=MediaAsset, status_code=201, responses=ERRORS)

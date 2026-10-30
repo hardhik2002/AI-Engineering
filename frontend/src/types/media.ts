@@ -19,6 +19,12 @@ export interface MediaAsset {
 }
 
 export interface ApiError { error: { code: string; message: string } }
+export interface MediaLimits {
+  max_image_bytes: number
+  max_video_bytes: number
+  max_video_duration_ms: number
+  max_image_pixels: number
+}
 export interface NormalizedBoundingBox { x1: number; y1: number; x2: number; y2: number }
 export interface DetectionOverlay {
   box: NormalizedBoundingBox

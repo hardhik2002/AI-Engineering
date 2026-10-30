@@ -1,25 +1,29 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { FileImage, Film, RotateCcw, Upload, X } from 'lucide-react'
 import { useDropzone, type FileError } from 'react-dropzone'
 import { Button } from '@/components/ui/button'
 import { formatBytes, mediaErrorMessage, uploadMedia } from '@/lib/media'
-import type { MediaAsset } from '@/types/media'
+import type { MediaAsset, MediaLimits } from '@/types/media'
 
-const imageLimit = 20 * 1024 * 1024
-const videoLimit = 250 * 1024 * 1024
+const defaultLimits: MediaLimits = {
+  max_image_bytes: 20 * 1024 * 1024, max_video_bytes: 250 * 1024 * 1024,
+  max_video_duration_ms: 10 * 60 * 1000, max_image_pixels: 40_000_000,
+}
 const accept = {
   'image/jpeg': ['.jpg', '.jpeg'], 'image/png': ['.png'], 'image/webp': ['.webp'],
   'video/mp4': ['.mp4'], 'video/webm': ['.webm'],
 }
 
-interface Props { compact?: boolean; disabled?: boolean; onUploaded: (asset: MediaAsset) => void }
+interface Props { compact?: boolean; disabled?: boolean; limits?: MediaLimits; onUploaded: (asset: MediaAsset) => void }
 
-export function MediaUploader({ compact = false, disabled = false, onUploaded }: Props) {
+export function MediaUploader({ compact = false, disabled = false, limits = defaultLimits, onUploaded }: Props) {
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [progress, setProgress] = useState(0)
   const [status, setStatus] = useState<'idle' | 'uploading' | 'success' | 'cancelled' | 'error'>('idle')
   const [message, setMessage] = useState('')
   const controller = useRef<AbortController | null>(null)
+
+  useEffect(() => () => controller.current?.abort(), [])
 
   async function startUpload(file: File) {
     controller.current?.abort()
@@ -43,7 +47,7 @@ export function MediaUploader({ compact = false, disabled = false, onUploaded }:
   }
 
   function validateFile(file: File): FileError | null {
-    const maximum = file.type.startsWith('video/') ? videoLimit : imageLimit
+    const maximum = file.type.startsWith('video/') ? limits.max_video_bytes : limits.max_image_bytes
     return file.size > maximum ? { code: 'file-too-large', message: `File exceeds ${formatBytes(maximum)}.` } : null
   }
 
@@ -51,6 +55,7 @@ export function MediaUploader({ compact = false, disabled = false, onUploaded }:
     accept, multiple: false, noClick: true, disabled: disabled || status === 'uploading', validator: validateFile,
     onDropAccepted: ([file]) => { if (file) void startUpload(file) },
     onDropRejected: ([rejection]) => {
+      setSelectedFile(null)
       setStatus('error')
       setMessage(rejection?.errors[0]?.message || 'Unsupported file. Use JPEG, PNG, WebP, MP4 or WebM.')
     },
@@ -68,7 +73,7 @@ export function MediaUploader({ compact = false, disabled = false, onUploaded }:
     <Button type="button" onClick={open} disabled={disabled || status === 'uploading'} variant={compact ? 'secondary' : 'default'} size={compact ? 'small' : 'default'}>
       <Upload size={15} />{compact ? 'Add media' : 'Browse files'}
     </Button>
-    {!compact && <span className="upload-limits">Images up to 20 MB · Videos up to 250 MB / 10 min</span>}
+    {!compact && <span className="upload-limits">Images up to {formatBytes(limits.max_image_bytes)} · Videos up to {formatBytes(limits.max_video_bytes)} / {Math.round(limits.max_video_duration_ms / 60000)} min</span>}
     {status !== 'idle' && <div className={`upload-feedback upload-${status}`} role="status">
       {selectedFile && <span className="upload-name">{selectedFile.name} · {formatBytes(selectedFile.size)}</span>}
       {status === 'uploading' && <><div className="upload-progress"><span style={{ width: `${progress}%` }} /></div><span>{progress}%</span><Button type="button" variant="ghost" size="icon" onClick={() => controller.current?.abort()} aria-label="Cancel upload"><X size={15} /></Button></>}

@@ -21,6 +21,13 @@ class MediaAsset(BaseModel):
     thumbnail_available: bool
 
 
+class MediaLimits(BaseModel):
+    max_image_bytes: int
+    max_video_bytes: int
+    max_video_duration_ms: int
+    max_image_pixels: int
+
+
 class ApiErrorDetail(BaseModel):
     code: str
     message: str

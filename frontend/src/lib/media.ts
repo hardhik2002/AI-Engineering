@@ -1,6 +1,6 @@
 import axios, { isAxiosError } from 'axios'
 import { api } from '@/lib/api'
-import type { ApiError, MediaAsset } from '@/types/media'
+import type { ApiError, MediaAsset, MediaLimits } from '@/types/media'
 
 const baseURL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5200').replace(/\/$/, '')
 
@@ -14,6 +14,11 @@ export function mediaThumbnailUrl(mediaId: string) {
 
 export async function listMedia(): Promise<MediaAsset[]> {
   const { data } = await api.get<MediaAsset[]>('/api/v1/media')
+  return data
+}
+
+export async function getMediaLimits(): Promise<MediaLimits> {
+  const { data } = await api.get<MediaLimits>('/api/v1/media/limits')
   return data
 }
 

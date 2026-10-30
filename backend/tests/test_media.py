@@ -106,6 +106,23 @@ def test_upload_limits(settings: Settings) -> None:
     assert list(settings.media_root.iterdir()) == []
 
 
+def test_limits_endpoint_uses_settings(settings: Settings) -> None:
+    configured = settings.model_copy(update={"max_image_bytes": 1234})
+    with TestClient(create_app(configured)) as client:
+        response = client.get("/api/v1/media/limits")
+        assert response.status_code == 200
+        assert response.json()["max_image_bytes"] == 1234
+
+
+def test_multipart_body_is_bounded_before_parsing(settings: Settings) -> None:
+    limited = settings.model_copy(update={"max_video_bytes": 1})
+    with TestClient(create_app(limited)) as client:
+        response = upload(client, "oversized.png", b"x" * 70000)
+        assert response.status_code == 413
+        assert response.json()["error"]["code"] == "body_too_large"
+        assert list(settings.media_root.iterdir()) == []
+
+
 def test_invalid_ids_and_range_requests(client: TestClient) -> None:
     content = image_bytes()
     media_id = upload(client, "test.png", content).json()["media_id"]
@@ -180,6 +197,47 @@ def test_video_upload_metadata_range_and_duration(
         assert too_long.status_code == 413
         assert too_long.json()["error"]["code"] == "video_too_long"
     assert client.get("/api/v1/media").json() == [asset]
+
+
+def test_truncated_video_is_rejected(settings: Settings, video_file: bytes) -> None:
+    with TestClient(create_app(settings)) as client:
+        response = upload(client, "broken.mp4", video_file[:-20], "video/mp4")
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "invalid_media"
+        assert list(settings.media_root.iterdir()) == []
+
+
+def test_webm_upload(settings: Settings, tmp_path: Path) -> None:
+    binary = shutil.which("ffmpeg")
+    if not binary:
+        pytest.skip("FFmpeg is not installed")
+    path = tmp_path / "sample.webm"
+    result = subprocess.run(
+        [
+            binary,
+            "-v",
+            "error",
+            "-y",
+            "-f",
+            "lavfi",
+            "-i",
+            "color=c=blue:s=64x48:d=1",
+            "-c:v",
+            "libvpx",
+            "-b:v",
+            "300k",
+            str(path),
+        ],
+        capture_output=True,
+        timeout=20,
+        check=False,
+    )
+    if result.returncode != 0:
+        pytest.skip("Installed FFmpeg cannot generate the WebM fixture")
+    with TestClient(create_app(settings)) as client:
+        response = upload(client, "sample.webm", path.read_bytes(), "video/webm")
+        assert response.status_code == 201, response.text
+        assert response.json()["detected_mime_type"] == "video/webm"
 
 
 def test_missing_ffprobe_reports_dependency(settings: Settings, video_file: bytes) -> None:

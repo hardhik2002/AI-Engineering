@@ -12,6 +12,7 @@ from app.api.media import router as media_router
 from app.api.routes import router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
+from app.core.upload_limit import UploadBodyLimitMiddleware
 from app.schemas.media import ApiError, ApiErrorDetail
 from app.services.media import MediaError, MediaService
 
@@ -31,6 +32,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     app = FastAPI(title="VisionLab AI API", version="0.2.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.media_service = media_service
+    app.add_middleware(UploadBodyLimitMiddleware, maximum_bytes=settings.max_video_bytes + 65536)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,

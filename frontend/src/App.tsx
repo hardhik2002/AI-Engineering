@@ -13,7 +13,7 @@ import { MediaLibrary } from '@/components/media/MediaLibrary'
 import { MediaUploader } from '@/components/media/MediaUploader'
 import { MediaViewer } from '@/components/media/MediaViewer'
 import { getCapabilities, getHealth } from '@/lib/api'
-import { deleteMedia, formatBytes, listMedia, mediaErrorMessage } from '@/lib/media'
+import { deleteMedia, formatBytes, getMediaLimits, listMedia, mediaErrorMessage } from '@/lib/media'
 import { useMediaStore } from '@/store/media'
 import { useThemeStore } from '@/store/theme'
 import type { CapabilityId, CapabilityStatus } from '@/types/api'
@@ -70,6 +70,7 @@ function Workstation() {
   const health = useQuery({ queryKey: ['health'], queryFn: getHealth, refetchInterval: 30_000 })
   const capabilities = useQuery({ queryKey: ['capabilities'], queryFn: getCapabilities })
   const media = useQuery({ queryKey: ['media'], queryFn: listMedia, enabled: health.isSuccess })
+  const limits = useQuery({ queryKey: ['media-limits'], queryFn: getMediaLimits, enabled: health.isSuccess })
   const queryClient = useQueryClient()
   const activeMediaId = useMediaStore((state) => state.activeMediaId)
   const selectMedia = useMediaStore((state) => state.selectMedia)
@@ -170,7 +171,7 @@ function Workstation() {
             <div className="panel-title"><span className="panel-title-icon"><ImageIcon size={17} /></span><span id="viewer-title">Media viewer</span><span className="panel-tag">{activeAsset ? activeAsset.media_type.toUpperCase() : 'NO MEDIA'}</span></div>
             <div className="viewer-actions">
               <span className="tool-label">Original media</span>
-              {activeAsset && <><span className="vertical-rule" /><MediaUploader compact disabled={!health.isSuccess} onUploaded={onUploaded} /></>}
+              {activeAsset && <><span className="vertical-rule" /><MediaUploader compact disabled={!health.isSuccess} limits={limits.data} onUploaded={onUploaded} /></>}
             </div>
           </div>
           {uploadNotice && <div className="upload-success-banner" role="status"><Check size={15} /><span>{uploadNotice}</span><button type="button" onClick={() => setUploadNotice('')} aria-label="Dismiss upload message">×</button></div>}
@@ -181,7 +182,7 @@ function Workstation() {
             <div className="stage-grid" aria-hidden="true" />
             <div className="stage-corner corner-tl" aria-hidden="true" /><div className="stage-corner corner-tr" aria-hidden="true" />
             <div className="stage-corner corner-bl" aria-hidden="true" /><div className="stage-corner corner-br" aria-hidden="true" />
-            <MediaUploader onUploaded={onUploaded} />
+            <MediaUploader limits={limits.data} onUploaded={onUploaded} />
             <span className="stage-coordinate stage-coordinate-top">X 00.000 &nbsp; Y 00.000</span>
             <span className="stage-coordinate stage-coordinate-bottom">VIEWPORT / EMPTY</span>
             </>}
