@@ -39,8 +39,9 @@ def test_capabilities_report_only_media_as_available(client: TestClient) -> None
         "image_preview",
         "video_preview",
     }
-    assert len([item for item in capabilities if item["status"] == "planned"]) == 3
-    assert len([item for item in capabilities if item["status"] == "unavailable"]) == 2
+    assert len([item for item in capabilities if item["status"] == "planned"]) == 2
+    assert next(item for item in capabilities if item["id"] == "captioning")["status"] == "unavailable"
+    assert len([item for item in capabilities if item["status"] == "unavailable"]) == 3
 
 
 def test_cors_allows_local_frontend(client: TestClient) -> None:

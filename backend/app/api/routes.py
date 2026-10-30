@@ -18,11 +18,20 @@ def capabilities(request: Request) -> list[Capability]:
     detection_ready = request.app.state.detector.get_status().state == "ready"
     detection_status = "available" if detection_ready else "unavailable"
     return [
-        Capability(id="captioning", name="Image Captioning", status="planned", phase=4),
+        Capability(
+            id="captioning",
+            name="Image Captioning",
+            status="available"
+            if request.app.state.caption_provider.successful_tasks.intersection(
+                {"short", "detailed", "extended"}
+            )
+            else "unavailable",
+            phase=4,
+        ),
         Capability(id="vqa", name="Visual Question Answering", status="planned", phase=5),
         Capability(id="analysis", name="Image Analysis", status=detection_status, phase=3),
         Capability(
-            id="objects", name="Object and Region Understanding", status=detection_status, phase=3
+            id="objects", name="Object and Region Understanding", status=detection_status, phase=4
         ),
         Capability(
             id="accessibility", name="Accessible Image Descriptions", status="planned", phase=5

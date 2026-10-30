@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 import logging
 import sqlite3
 from datetime import datetime
@@ -5,6 +7,7 @@ from pathlib import Path
 from time import perf_counter
 
 from app.core.logging import log_event
+from app.schemas.caption import CaptionRecord
 from app.schemas.vision import AnalysisRecord
 
 logger = logging.getLogger("visionlab.database")
@@ -56,7 +59,7 @@ class AnalysisRepository:
         started = perf_counter()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT result_json FROM analyses WHERE media_id=? AND analysis_id=?",
+                "SELECT result_json FROM analyses WHERE media_id=? AND analysis_id=? AND task='object_detection'",
                 (media_id, analysis_id),
             ).fetchone()
         result = (
@@ -79,7 +82,7 @@ class AnalysisRepository:
         started = perf_counter()
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT result_json FROM analyses WHERE media_id=? AND result_json IS NOT NULL
+                """SELECT result_json FROM analyses WHERE media_id=? AND task='object_detection' AND result_json IS NOT NULL
                 ORDER BY created_at DESC, analysis_id DESC LIMIT 100""",
                 (media_id,),
             ).fetchall()
@@ -93,3 +96,39 @@ class AnalysisRepository:
             duration_ms=round((perf_counter() - started) * 1000, 2),
         )
         return results
+
+    def insert_caption(self, record: CaptionRecord) -> None:
+        started = perf_counter()
+        with self._connect() as connection:
+            connection.execute(
+                """INSERT INTO analyses
+                (analysis_id,media_id,task,status,created_at,completed_at,result_json)
+                VALUES(?,?,?,?,?,?,?)""",
+                (
+                    record.analysis_id,
+                    record.media_id,
+                    record.task,
+                    record.status,
+                    record.created_at.isoformat(),
+                    record.completed_at.isoformat(),
+                    record.model_dump_json(),
+                ),
+            )
+        log_event(
+            logger,
+            "caption.persisted",
+            "COMPLETE Caption result saved",
+            media_id=record.media_id,
+            analysis_id=record.analysis_id,
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+        )
+
+    def list_captions(self, media_id: str) -> list[CaptionRecord]:
+        with self._connect() as connection:
+            rows = connection.execute(
+                """SELECT result_json FROM analyses WHERE media_id=? AND task IN
+                ('short','detailed','extended','dense','selected_object')
+                ORDER BY created_at DESC, analysis_id DESC LIMIT 100""",
+                (media_id,),
+            ).fetchall()
+        return [CaptionRecord.model_validate_json(row["result_json"]) for row in rows]

@@ -73,6 +73,12 @@ _FIELDS = (
     "log_directory",
     "capabilities",
     "details",
+    "caption_mode",
+    "region_count",
+    "detection_id",
+    "crop_width",
+    "crop_height",
+    "revision",
 )
 _SENSITIVE = re.compile(
     r"password|secret|token|authorization|cookie|api[_-]?key|credential|path|filename", re.I

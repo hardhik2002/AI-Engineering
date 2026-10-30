@@ -284,3 +284,10 @@ h1, h2, p { margin: 0; }
   .video-controls { padding-left: 8px; padding-right: 8px; }
 }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { scroll-behavior: auto !important; transition-duration: .01ms !important; animation-duration: .01ms !important; } }
+.caption-mode { display: grid; gap: 6px; margin: 12px 0; color: var(--muted); font-size: 12px; }
+.caption-mode select { width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 6px; background: var(--surface-2); color: var(--text); }
+.caption-actions { display: flex; flex-wrap: wrap; gap: 7px; margin: 12px 0; }
+.caption-text { margin: 12px 0; padding: 12px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); line-height: 1.55; overflow-wrap: anywhere; }
+.caption-text small { display: block; margin-top: 9px; color: var(--muted); }
+.caption-inspector .object-list button { height: auto; min-height: 34px; text-align: left; white-space: normal; }
+.region-hit { z-index: 3; }

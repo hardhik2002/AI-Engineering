@@ -43,6 +43,13 @@ class Settings(BaseSettings):
     detection_max_detections: int = Field(default=100, ge=1, le=300)
     detection_concurrency: int = Field(default=1, ge=1, le=4)
     detection_max_source_side: int = Field(default=2048, ge=640, le=8192)
+    florence_checkpoint: str = "florence-community/Florence-2-base-ft"
+    florence_revision: str = "0b03b6f15a4a211370fb204aee4e7dd48887ea37"
+    florence_device: Literal["auto", "cpu", "cuda"] = "cpu"
+    florence_max_new_tokens: int = Field(default=512, ge=32, le=1024)
+    florence_num_beams: int = Field(default=1, ge=1, le=4)
+    florence_max_regions: int = Field(default=30, ge=1, le=100)
+    florence_max_source_side: int = Field(default=2048, ge=640, le=4096)
 
     @property
     def allowed_origins(self) -> list[str]:

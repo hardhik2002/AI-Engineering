@@ -17,9 +17,11 @@ from app.api.vision import router as vision_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, log_event, request_id_context, safe_traceback
 from app.core.upload_limit import UploadBodyLimitMiddleware
+from app.providers.captioner import CaptionError, CaptionProvider, Florence2CaptionProvider
 from app.providers.detector import DetectorError, ObjectDetector, YOLO26Detector
 from app.schemas.media import ApiError, ApiErrorDetail
 from app.services.analysis import AnalysisService
+from app.services.caption import CaptionService
 from app.services.media import MediaError, MediaService
 
 logger = logging.getLogger("visionlab.http")
@@ -37,12 +39,18 @@ def _route_template(request: Request) -> str:
     return "unmatched"
 
 
-def create_app(settings: Settings | None = None, detector: ObjectDetector | None = None) -> FastAPI:
+def create_app(
+    settings: Settings | None = None,
+    detector: ObjectDetector | None = None,
+    caption_provider: CaptionProvider | None = None,
+) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
     media_service = MediaService(settings)
     detector = detector or YOLO26Detector(settings)
     analysis_service = AnalysisService(settings, media_service, detector)
+    caption_provider = caption_provider or Florence2CaptionProvider(settings)
+    caption_service = CaptionService(settings, media_service, caption_provider)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -82,7 +90,7 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
                 else "installed_not_loaded"
                 if model_installed_unloaded
                 else "unavailable",
-                "captioning": "planned",
+                "captioning": caption_provider.get_status()["state"],
                 "vqa": "planned",
                 "video_detection": "planned",
             },
@@ -109,6 +117,8 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
     app.state.media_service = media_service
     app.state.detector = detector
     app.state.analysis_service = analysis_service
+    app.state.caption_provider = caption_provider
+    app.state.caption_service = caption_service
     app.add_middleware(UploadBodyLimitMiddleware, maximum_bytes=settings.max_video_bytes + 65536)
     app.add_middleware(
         CORSMiddleware,
@@ -130,6 +140,13 @@ def create_app(settings: Settings | None = None, detector: ObjectDetector | None
 
     @app.exception_handler(DetectorError)
     async def detector_error_handler(request: Request, error: DetectorError) -> JSONResponse:
+        request.state.error_code = error.code
+        request.state.error_message = error.message
+        body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
+        return JSONResponse(status_code=error.status_code, content=body.model_dump())
+
+    @app.exception_handler(CaptionError)
+    async def caption_error_handler(request: Request, error: CaptionError) -> JSONResponse:
         request.state.error_code = error.code
         request.state.error_message = error.message
         body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))

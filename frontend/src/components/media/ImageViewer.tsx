@@ -6,10 +6,10 @@ import { useElementSize } from '@/components/media/useElementSize'
 import { mediaContentUrl } from '@/lib/media'
 import type { DetectionOverlay, MediaAsset, RegionOverlay } from '@/types/media'
 
-interface Props { asset: MediaAsset; detections?: DetectionOverlay[]; regions?: RegionOverlay[]; selectedId?: string | null; onSelect?: (id: string | null) => void; showLabels?: boolean; showConfidence?: boolean }
+interface Props { asset: MediaAsset; detections?: DetectionOverlay[]; regions?: RegionOverlay[]; selectedId?: string | null; selectedRegionId?: string | null; onSelect?: (id: string | null) => void; onSelectRegion?: (id: string) => void; showLabels?: boolean; showConfidence?: boolean }
 const percentPosition = (value: number) => `${Number((value * 100).toFixed(4))}%`
 
-export function ImageViewer({ asset, detections = [], regions = [], selectedId, onSelect, showLabels = true, showConfidence = true }: Props) {
+export function ImageViewer({ asset, detections = [], regions = [], selectedId, selectedRegionId, onSelect, onSelectRegion, showLabels = true, showConfidence = true }: Props) {
   const viewportRef = useRef<HTMLDivElement>(null)
   const drag = useRef<{ x: number; y: number; originX: number; originY: number } | null>(null)
   const viewport = useElementSize(viewportRef)
@@ -70,8 +70,9 @@ export function ImageViewer({ asset, detections = [], regions = [], selectedId, 
       {error ? <p className="media-load-error" role="alert">Image could not be loaded from the backend.</p> :
         <div className="image-layer" style={{ width, height, transform: `translate(calc(-50% + ${offset.x}px), calc(-50% + ${offset.y}px)) scale(${zoom})` }}>
           <img src={mediaContentUrl(asset.media_id)} alt={asset.original_filename} width={width} height={height} draggable={false} onError={() => setError(true)} />
-          <OverlayCanvas width={width} height={height} detections={detections} regions={regions} selectedId={selectedId} showLabels={showLabels} showConfidence={showConfidence} />
+          <OverlayCanvas width={width} height={height} detections={detections} regions={regions} selectedId={selectedId} selectedRegionId={selectedRegionId} showLabels={showLabels} showConfidence={showConfidence} />
           {detections.filter((item) => item.id).map((item) => <button key={item.id} type="button" className="detection-hit" style={{ left: percentPosition(item.box.x1), top: percentPosition(item.box.y1), width: percentPosition(item.box.x2 - item.box.x1), height: percentPosition(item.box.y2 - item.box.y1) }} aria-label={`Select ${item.label} ${Math.round(item.confidence * 100)} percent`} aria-pressed={selectedId === item.id} onClick={() => onSelect?.(item.id ?? null)} />)}
+          {onSelectRegion && regions.map((item) => <button key={item.id} type="button" className="detection-hit region-hit" style={{ left: percentPosition(item.box.x1), top: percentPosition(item.box.y1), width: percentPosition(item.box.x2 - item.box.x1), height: percentPosition(item.box.y2 - item.box.y1) }} aria-label={`Select region ${item.label ?? ''}`} aria-pressed={selectedRegionId === item.id} onClick={() => onSelectRegion(item.id)} />)}
         </div>}
     </div>
   </div>

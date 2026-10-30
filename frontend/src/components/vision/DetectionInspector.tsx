@@ -19,13 +19,18 @@ interface Props {
   showConfidence: boolean
   onShowConfidence: (value: boolean) => void
   onReset: () => void
+  onDescribe?: () => void
+  describeLoading?: boolean
+  describeError?: string
+  description?: { text: string; model: string; duration: number } | null
 }
 
 const percent = (value: number) => `${Math.round(value * 100)}%`
 
 export function DetectionInspector({ analysis, model, loading, error, visible, selectedId, onSelect,
   displayConfidence, onDisplayConfidence, selectedClasses, onSelectedClasses,
-  showBoxes, onShowBoxes, showLabels, onShowLabels, showConfidence, onShowConfidence, onReset }: Props) {
+  showBoxes, onShowBoxes, showLabels, onShowLabels, showConfidence, onShowConfidence, onReset,
+  onDescribe, describeLoading = false, describeError = '', description }: Props) {
   const all = analysis?.detections ?? []
   const classes = Object.keys(analysis?.summary?.class_counts ?? {})
   const selectedIndex = visible.findIndex((item) => item.id === selectedId)
@@ -61,6 +66,9 @@ export function DetectionInspector({ analysis, model, loading, error, visible, s
       {selected && analysis.image && <div className="analysis-section selected-object"><div className="section-label">SELECTED OBJECT</div><strong>{selected.label} · {percent(selected.confidence)}</strong>
         <dl><div><dt>ID</dt><dd>{selected.id}</dd></div><div><dt>Normalized box</dt><dd>{Object.values(selected.bounding_box).map((value) => value.toFixed(4)).join(', ')}</dd></div><div><dt>Pixels (x, y, w, h)</dt><dd>{[selected.bounding_box.x * analysis.image.width, selected.bounding_box.y * analysis.image.height, selected.bounding_box.width * analysis.image.width, selected.bounding_box.height * analysis.image.height].map(Math.round).join(', ')}</dd></div><div><dt>Model</dt><dd>{analysis.model?.name}</dd></div></dl>
         <div className="object-navigation"><button type="button" onClick={() => onSelect(visible[(selectedIndex - 1 + visible.length) % visible.length].id)}>Previous</button><button type="button" onClick={() => onSelect(null)}>Deselect</button><button type="button" onClick={() => onSelect(visible[(selectedIndex + 1) % visible.length].id)}>Next</button></div>
+        {onDescribe && <><button type="button" className="analysis-text-button" onClick={onDescribe} disabled={describeLoading}>{describeLoading ? 'Describing object…' : 'Describe Selected Object'}</button>
+          {describeError && <p role="alert" className="analysis-message analysis-error">{describeError}</p>}
+          {description && <div className="caption-text"><p>{description.text}</p><small>{description.model} · {description.duration.toFixed(0)} ms inference</small></div>}</>}
       </div>}
     </>}
   </div>

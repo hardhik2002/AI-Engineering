@@ -1,6 +1,6 @@
 # VisionLab AI
 
-A local computer vision workstation for learning five AI-103 image-understanding capabilities. **Phase 3 (B3 + F3)** adds real YOLO26 Nano detection on uploaded images, saved analysis runs, object counts, and interactive overlays. Captioning, VQA, video inference, and advanced region understanding remain planned.
+A local computer vision workstation for learning five AI-103 image-understanding capabilities. **Phase 4 (B4 + F4)** adds real Florence-2 captions, dense regions, and descriptions of selected YOLO objects. VQA, accessible descriptions, and video inference remain planned.
 
 ## Run locally
 
@@ -12,8 +12,9 @@ Prerequisites: Python 3.12, Node.js 20.19+ or 22.12+, npm, and FFprobe for video
 cd backend
 Copy-Item .env.example .env
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev,vision]'
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,vision,caption]'
 .\.venv\Scripts\python.exe -m app.scripts.install_model
+.\.venv\Scripts\python.exe -m app.scripts.install_florence
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --no-access-log --host localhost --port 5200
 ```
 
@@ -40,6 +41,12 @@ ffmpeg -version
 ```
 
 The binaries can also be set explicitly with `VISIONLAB_FFPROBE_BINARY` and `VISIONLAB_FFMPEG_BINARY` in `backend/.env`. Missing FFprobe gives a clear `503` error for video upload. Without FFmpeg, video metadata can still be stored but no poster thumbnail is generated.
+
+## Phase 4 Florence-2 captions and regions
+
+In **Image Captioning**, select an uploaded image, choose Short, Detailed, or Extended, then generate a caption. Generate Dense Regions to draw the model's boxes over the same image. Select a region in the image or inspector to read its full description; the region overlay can be hidden independently. Saved caption runs reopen after refresh. In **Objects & regions**, run YOLO detection, select a box, and choose **Describe Selected Object** to caption its validated crop. Florence text is separate from YOLO's confidence score. Empty dense-region output is a valid model result.
+
+The model installs explicitly and runs locally on CPU by default. The first request loads its roughly 463 MB checkpoint; subsequent requests reuse it. See [Florence setup](backend/MODELS.md), [API contract](backend/API.md), and [architecture](docs/ARCHITECTURE.md). Florence generation can take several seconds on this CPU. No model is downloaded during an API request.
 
 ## Phase 3 image detection
 
@@ -102,6 +109,7 @@ cd backend
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check .
 $env:VISIONLAB_RUN_REAL_MODEL='1'; .\.venv\Scripts\python.exe -m pytest -q -s tests/test_real_model.py
+$env:VISIONLAB_RUN_REAL_FLORENCE='1'; .\.venv\Scripts\python.exe -m pytest -q -s tests/test_real_florence.py
 
 cd ..\frontend
 npm test
@@ -115,6 +123,6 @@ To check manually, upload a photo containing people or vehicles, run Image Analy
 
 ## Current limits
 
-Phase 3 performs image object detection only. Video analysis, tracking, webcam capture, segmentation, captioning, VQA, and exports remain planned. Media and analysis lists each return at most 100 newest items with no pagination. This local app has no authentication; a production multi-user deployment needs authentication and authorization. Video validation uses bounded metadata inspection and preview decode; it does not scan every frame for corruption. Cancelling a browser upload cannot undo a request the server has already fully received.
+Phase 4 performs image object detection and local Florence-2 captioning. Video AI analysis, tracking, webcam capture, segmentation, VQA, accessible descriptions, and exports remain planned. Media and analysis lists each return at most 100 newest items with no pagination. This local app has no authentication; a production multi-user deployment needs authentication and authorization. Video validation uses bounded metadata inspection and preview decode; it does not scan every frame for corruption. Cancelling a browser upload cannot undo a request the server has already fully received.
 
 Review [Ultralytics' YOLO26 licensing](https://docs.ultralytics.com/models/yolo26/) before distributing or hosting this project.

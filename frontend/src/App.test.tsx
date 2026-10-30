@@ -76,7 +76,7 @@ describe('VisionLab media workspace', () => {
     expect(await screen.findByText('API connected')).toBeInTheDocument()
     expect(await screen.findByText('Phase 4')).toBeInTheDocument()
     expect(screen.getByRole('button', { name: 'Browse files' })).toBeEnabled()
-    expect(screen.getByText('No AI analysis yet')).toBeInTheDocument()
+    expect(screen.getByText('No captions saved for this image.')).toBeInTheDocument()
     expect(screen.getByText('Uploaded images and videos will appear here.')).toBeInTheDocument()
   })
 

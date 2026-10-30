@@ -34,7 +34,7 @@ export interface DetectionOverlay {
   confidence: number
   trackingId?: string
 }
-export interface RegionOverlay { box: NormalizedBoundingBox; label?: string }
+export interface RegionOverlay { id: string; box: NormalizedBoundingBox; label?: string }
 export interface CaptionOverlay { text: string; box?: NormalizedBoundingBox }
 export interface TimestampedAnalysisResult {
   timestampMs: number
