@@ -10,7 +10,18 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=".env", env_prefix="VISIONLAB_", extra="ignore")
 
     environment: Literal["development", "test", "production"] = "development"
-    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR"] = "INFO"
+    log_level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
+    log_console_enabled: bool = True
+    log_file_enabled: bool = True
+    log_format: Literal["pretty", "json"] = "pretty"
+    log_directory: Path = Path("data/logs")
+    log_file_max_mb: int = Field(default=10, ge=1, le=100)
+    log_file_backup_count: int = Field(default=5, ge=1, le=20)
+    log_request_id_enabled: bool = True
+    log_slow_request_ms: int = Field(default=1000, ge=1, le=600_000)
+    log_health_requests: bool = False
+    log_inference_details: bool = True
+    log_colors: Literal["auto", "always", "never"] = "auto"
     cors_origins: str = "http://localhost:5180,http://127.0.0.1:5180"
     database_url: str = "sqlite:///./visionlab.db"
     inference_device: Literal["cpu", "cuda"] = "cpu"

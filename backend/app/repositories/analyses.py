@@ -1,8 +1,13 @@
+import logging
 import sqlite3
 from datetime import datetime
 from pathlib import Path
+from time import perf_counter
 
+from app.core.logging import log_event
 from app.schemas.vision import AnalysisRecord
+
+logger = logging.getLogger("visionlab.database")
 
 
 class AnalysisRepository:
@@ -24,6 +29,7 @@ class AnalysisRepository:
             )
 
     def finish(self, record: AnalysisRecord) -> None:
+        started = perf_counter()
         with self._connect() as connection:
             connection.execute(
                 """UPDATE analyses SET status=?,completed_at=?,result_json=?,error_code=?
@@ -36,24 +42,54 @@ class AnalysisRepository:
                     record.analysis_id,
                 ),
             )
+        log_event(
+            logger,
+            "analysis.persisted",
+            "COMPLETE Analysis record saved",
+            media_id=record.media_id,
+            analysis_id=record.analysis_id,
+            status=record.status,
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+        )
 
     def get(self, media_id: str, analysis_id: str) -> AnalysisRecord | None:
+        started = perf_counter()
         with self._connect() as connection:
             row = connection.execute(
                 "SELECT result_json FROM analyses WHERE media_id=? AND analysis_id=?",
                 (media_id, analysis_id),
             ).fetchone()
-        return (
+        result = (
             AnalysisRecord.model_validate_json(row["result_json"])
             if row and row["result_json"]
             else None
         )
+        if result:
+            log_event(
+                logger,
+                "analysis.loaded",
+                "COMPLETE Saved analysis loaded",
+                media_id=media_id,
+                analysis_id=analysis_id,
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
+        return result
 
     def list(self, media_id: str) -> list[AnalysisRecord]:
+        started = perf_counter()
         with self._connect() as connection:
             rows = connection.execute(
                 """SELECT result_json FROM analyses WHERE media_id=? AND result_json IS NOT NULL
                 ORDER BY created_at DESC, analysis_id DESC LIMIT 100""",
                 (media_id,),
             ).fetchall()
-        return [AnalysisRecord.model_validate_json(row["result_json"]) for row in rows]
+        results = [AnalysisRecord.model_validate_json(row["result_json"]) for row in rows]
+        log_event(
+            logger,
+            "analysis.loaded",
+            "COMPLETE Saved analyses listed",
+            media_id=media_id,
+            result_count=len(results),
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+        )
+        return results

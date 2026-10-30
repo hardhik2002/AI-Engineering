@@ -2,6 +2,8 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, expect, it, vi } from 'vitest'
 import { MediaUploader } from './MediaUploader'
 import { uploadMedia } from '@/lib/media'
+import { mediaErrorMessage } from '@/lib/media'
+import { AxiosError, AxiosHeaders } from 'axios'
 
 vi.mock('@/lib/media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/media')>()), uploadMedia: vi.fn(),
@@ -39,4 +41,13 @@ it('shows an upload error and retries the same file', async () => {
   expect(await screen.findByText('Server error')).toBeInTheDocument()
   fireEvent.click(screen.getByRole('button', { name: 'Retry' }))
   await waitFor(() => expect(onUploaded).toHaveBeenCalledOnce())
+})
+
+it('includes the backend request ID in an actionable error', () => {
+  const error = new AxiosError('failed', 'ERR_BAD_RESPONSE', undefined, undefined, {
+    data: { error: { code: 'invalid_media', message: 'Image is malformed.' } },
+    status: 422, statusText: 'Unprocessable Content', config: { headers: new AxiosHeaders() },
+    headers: new AxiosHeaders({ 'x-request-id': '08a937ff-72d5-4e0d-bbd6-fbf996ca634b' }),
+  })
+  expect(mediaErrorMessage(error)).toContain('Reference ID: 08a937ff-72d5-4e0d-bbd6-fbf996ca634b')
 })

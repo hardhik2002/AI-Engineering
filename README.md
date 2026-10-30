@@ -14,7 +14,7 @@ Copy-Item .env.example .env
 py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m pip install -e '.[dev,vision]'
 .\.venv\Scripts\python.exe -m app.scripts.install_model
-.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host localhost --port 5200
+.\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --no-access-log --host localhost --port 5200
 ```
 
 If `py -3.12` is unavailable, run `py -0p` and select an installed Python 3.12 runtime. On this workstation, `py -V:Astral/CPython3.12.15 -m venv .venv` works. With uv installed, `uv venv --python 3.12 --seed .venv` also creates a pip-ready environment. On macOS/Linux, use `python3.12 -m venv .venv` and `.venv/bin/python`.
@@ -91,6 +91,10 @@ frontend/src/
 
 The backend keeps media validation and inference out of route handlers. Image inference runs in the FastAPI thread pool with a bounded semaphore; excess concurrent requests receive `429`. Model weights load lazily and remain cached. An additive SQLite migration preserves existing media records, and deleting media cascades to its analyses. Media IDs, not disk paths, appear in browser URLs.
 
+## Phase 3.5 diagnostics
+
+The backend writes readable PowerShell console events and rotating JSONL records at `backend/data/logs/visionlab.jsonl`. Each request has an `X-Request-ID` response header that also appears on its upload, inference, database, and HTTP events. Successful health polling is quiet at INFO. Set `VISIONLAB_LOG_LEVEL=DEBUG` for up to 20 validated per-object entries per analysis. The [logging guide](docs/LOGGING.md) covers configuration, timing interpretation, PowerShell commands, privacy, and log sharing. Frontend API errors display a reference ID when the backend provides one.
+
 ## Verify
 
 ```powershell
@@ -113,4 +117,4 @@ To check manually, upload a photo containing people or vehicles, run Image Analy
 
 Phase 3 performs image object detection only. Video analysis, tracking, webcam capture, segmentation, captioning, VQA, and exports remain planned. Media and analysis lists each return at most 100 newest items with no pagination. This local app has no authentication; a production multi-user deployment needs authentication and authorization. Video validation uses bounded metadata inspection and preview decode; it does not scan every frame for corruption. Cancelling a browser upload cannot undo a request the server has already fully received.
 
-Before integrating YOLO26 Nano in Phase 3, review [Ultralytics' YOLO26 licensing](https://docs.ultralytics.com/models/yolo26/): its code and models are offered under AGPL-3.0 and Enterprise licenses.
+Review [Ultralytics' YOLO26 licensing](https://docs.ultralytics.com/models/yolo26/) before distributing or hosting this project.

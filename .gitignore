@@ -6,6 +6,7 @@ frontend/dist/
 backend/.pytest_cache/
 backend/.ruff_cache/
 backend/data/
+backend/data/logs/
 backend/*.egg-info/
 **/__pycache__/
 **/*.py[cod]

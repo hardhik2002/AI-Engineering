@@ -1,9 +1,14 @@
+import logging
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
+from time import perf_counter
 
+from app.core.logging import log_event
 from app.schemas.media import MediaAsset
+
+logger = logging.getLogger("visionlab.database")
 
 
 class MediaRepository:
@@ -63,6 +68,7 @@ class MediaRepository:
             connection.close()
 
     def insert(self, asset: MediaAsset, storage_ref: str, thumbnail_ref: str | None) -> None:
+        started = perf_counter()
         with self._connect() as connection:
             connection.execute(
                 """INSERT INTO media VALUES (
@@ -77,6 +83,13 @@ class MediaRepository:
                     "thumbnail_ref": thumbnail_ref,
                 },
             )
+        log_event(
+            logger,
+            "media.persisted",
+            "COMPLETE Media metadata saved",
+            media_id=asset.media_id,
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+        )
 
     def get(self, media_id: str) -> sqlite3.Row | None:
         with self._connect() as connection:
@@ -91,8 +104,28 @@ class MediaRepository:
             ).fetchall()
 
     def delete(self, media_id: str) -> None:
+        started = perf_counter()
+        analysis_count = 0
         with self._connect() as connection:
+            analysis_count = connection.execute(
+                "SELECT COUNT(*) FROM analyses WHERE media_id = ?", (media_id,)
+            ).fetchone()[0]
             connection.execute("DELETE FROM media WHERE media_id = ?", (media_id,))
+        if analysis_count:
+            log_event(
+                logger,
+                "analysis.deleted",
+                "COMPLETE Related analyses removed",
+                media_id=media_id,
+                records_deleted=analysis_count,
+            )
+        log_event(
+            logger,
+            "media.deleted",
+            "COMPLETE Media metadata removed",
+            media_id=media_id,
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+        )
 
 
 def public_asset(row: sqlite3.Row) -> MediaAsset:

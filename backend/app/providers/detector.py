@@ -1,12 +1,17 @@
 import importlib.metadata
+import logging
 from hashlib import sha256
 from threading import Lock
+from time import perf_counter
 from typing import Protocol
 
 from PIL import Image
 
 from app.core.config import Settings
+from app.core.logging import log_event
 from app.schemas.vision import DetectionParameters, ModelInfo, ModelStatus
+
+logger = logging.getLogger("visionlab.model")
 
 
 class DetectorError(Exception):
@@ -73,16 +78,53 @@ class YOLO26Detector:
 
     def load_model(self) -> None:
         if self._model is not None:
+            log_event(
+                logger,
+                "model.cache_hit",
+                "COMPLETE Cached model reused",
+                model=self.settings.detection_model,
+                device=self._device,
+                model_state="ready",
+                run_kind="warm",
+            )
             return
         with self._lock:
             if self._model is not None:
+                log_event(
+                    logger,
+                    "model.cache_hit",
+                    "COMPLETE Cached model reused",
+                    model=self.settings.detection_model,
+                    device=self._device,
+                    model_state="ready",
+                    run_kind="warm",
+                )
                 return
+            started = perf_counter()
             if not self.weights_path.is_file():
+                log_event(
+                    logger,
+                    "model.load_failed",
+                    "FAILED Model weights are not installed",
+                    level=logging.WARNING,
+                    model=self.settings.detection_model,
+                    model_state="not_installed",
+                    error_code="model_not_installed",
+                )
                 raise DetectorError(
                     "model_not_installed",
                     "YOLO26 Nano weights are not installed. Run the model install command.",
                 )
             self._state = "loading"
+            log_event(
+                logger,
+                "model.load_started",
+                "START Cold model initialization",
+                model=self.settings.detection_model,
+                model_state="loading",
+                run_kind="cold",
+                device=self.settings.detection_device,
+            )
             try:
                 import torch
                 from ultralytics import YOLO
@@ -109,17 +151,62 @@ class YOLO26Detector:
                 self._weights_sha256 = digest.hexdigest()
                 self._state = "ready"
                 self._detail = None
-            except DetectorError:
+                log_event(
+                    logger,
+                    "model.load_completed",
+                    "COMPLETE Model initialized",
+                    model=self.settings.detection_model,
+                    model_version="YOLO26",
+                    package_version=importlib.metadata.version("ultralytics"),
+                    device=self._device,
+                    model_state="ready",
+                    run_kind="cold",
+                    duration_ms=round((perf_counter() - started) * 1000, 2),
+                )
+            except DetectorError as exc:
+                log_event(
+                    logger,
+                    "model.load_failed",
+                    "FAILED Model initialization unavailable",
+                    level=logging.WARNING,
+                    model=self.settings.detection_model,
+                    model_state=self._state,
+                    error_code=exc.code,
+                    duration_ms=round((perf_counter() - started) * 1000, 2),
+                )
                 raise
             except Exception as exc:
                 self._state = "error"
                 self._detail = (
                     "Model initialization failed. Check installed vision dependencies and weights."
                 )
+                log_event(
+                    logger,
+                    "model.load_failed",
+                    "FAILED Model initialization error",
+                    level=logging.ERROR,
+                    model=self.settings.detection_model,
+                    model_state="error",
+                    error_code="model_initialization_failed",
+                    exception_type=type(exc).__name__,
+                    duration_ms=round((perf_counter() - started) * 1000, 2),
+                )
                 raise DetectorError("model_initialization_failed", self._detail) from exc
 
     def detect(self, image: Image.Image, configuration: DetectionParameters) -> list[RawDetection]:
-        self.load_model()
+        if self._model is None:
+            self.load_model()
+        started = perf_counter()
+        log_event(
+            logger,
+            "model.inference_started",
+            "START Model prediction",
+            model=self.settings.detection_model,
+            device=self._device,
+            confidence=configuration.confidence,
+            iou=configuration.iou,
+            image_size=configuration.image_size,
+        )
         try:
             import numpy as np
 
@@ -145,8 +232,28 @@ class YOLO26Detector:
                         tuple(float(value) for value in box.xyxy[0].tolist()),
                     )
                 )
+            log_event(
+                logger,
+                "model.inference_completed",
+                "COMPLETE Model prediction",
+                model=self.settings.detection_model,
+                device=self._device,
+                detection_count=len(detections),
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
             return detections
         except Exception as exc:
+            log_event(
+                logger,
+                "model.inference_failed",
+                "FAILED Model prediction",
+                level=logging.ERROR,
+                model=self.settings.detection_model,
+                device=self._device,
+                error_code="inference_failed",
+                exception_type=type(exc).__name__,
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
             raise DetectorError(
                 "inference_failed", "Object detection failed for this image.", 500
             ) from exc

@@ -1,5 +1,11 @@
+import logging
+
 from fastapi.responses import JSONResponse
 from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+from app.core.logging import log_event
+
+logger = logging.getLogger("visionlab.upload")
 
 
 class _BodyTooLarge(Exception):
@@ -44,6 +50,15 @@ class UploadBodyLimitMiddleware:
 
     @staticmethod
     async def _reject(scope: Scope, receive: Receive, send: Send) -> None:
+        scope.setdefault("state", {})["error_code"] = "body_too_large"
+        scope["state"]["error_message"] = "Upload body is too large."
+        log_event(
+            logger,
+            "upload.failed",
+            "FAILED Upload body exceeded configured limit",
+            level=logging.WARNING,
+            error_code="body_too_large",
+        )
         response = JSONResponse(
             status_code=413,
             content={"error": {"code": "body_too_large", "message": "Upload body is too large."}},

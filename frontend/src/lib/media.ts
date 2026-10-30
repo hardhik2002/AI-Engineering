@@ -43,7 +43,9 @@ export async function deleteMedia(mediaId: string): Promise<void> {
 export function mediaErrorMessage(error: unknown): string {
   if (axios.isCancel(error)) return 'Upload cancelled.'
   if (isAxiosError<ApiError>(error)) {
-    return error.response?.data?.error?.message || 'Could not reach the media service.'
+    const message = error.response?.data?.error?.message || 'Could not reach the media service.'
+    const requestId = error.response?.headers?.['x-request-id']
+    return typeof requestId === 'string' && requestId ? `${message} Reference ID: ${requestId}` : message
   }
   return error instanceof Error ? error.message : 'Something went wrong.'
 }

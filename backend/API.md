@@ -41,6 +41,8 @@ Errors use a consistent JSON shape for application validation and media lookup, 
 {"error":{"code":"invalid_media","message":"Image is malformed or truncated."}}
 ```
 
+Every HTTP response has an `X-Request-ID` header. The server accepts a canonical UUIDv4 supplied in that header or generates a fresh UUIDv4 if it is absent or invalid. Include this ID when reporting an upload or analysis failure. It links the response to records in `data/logs/visionlab.jsonl`. The browser is allowed to read the header through CORS. Internal tracebacks stay out of API responses.
+
 Common codes include `invalid_request` (422), `unsupported_format` (422), `invalid_mime_type` (422), `invalid_media` (422), `file_too_large`/`image_too_large`/`video_too_long` (413), `body_too_large` (413), `media_not_found` (404), `thumbnail_not_found` (404), `invalid_range` (416), and `media_dependency_unavailable` (503).
 
 ## Image detection contract
@@ -55,6 +57,6 @@ Confidence is greater than 0 and at most 1; IoU is 0 through 1; image size is 16
 
 The response includes `analysis_id`, `media_id`, `status`, `task`, `created_at`, `completed_at`, `model`, `image`, `parameters`, `detections`, `summary`, and `timings_ms`. Each detection contains an ID, real class ID and label, confidence score, and `bounding_box` as normalized `{x,y,width,height}`. The origin is the top left of the EXIF-oriented image, with each coordinate in `[0,1]`. `image.width` and `image.height` are oriented original dimensions, even when preprocessing resized the detector input. Multiply normalized values by these dimensions to obtain pixel coordinates. Invalid or non-finite detector coordinates fail the analysis; out-of-image edges are clipped only when a positive area remains.
 
-`summary.total_objects` and `summary.class_counts` are derived from the returned detections. Zero detections is a successful result with an empty list and zero counts. `model` includes Ultralytics package version, YOLO26 version, execution device, and the installed weight file's SHA-256 digest. Timings are measured in milliseconds and include lazy model initialization in the first run. Failed runs are retained with `status=failed` and `error_code`; internal tracebacks are never sent to the browser.
+`summary.total_objects` and `summary.class_counts` are derived from the returned detections. Zero detections is a successful result with an empty list and zero counts. `model` includes Ultralytics package version, YOLO26 version, execution device, and the installed weight file's SHA-256 digest. Timings are measured in milliseconds; `model_initialization` is separate from `inference`. The `analysis.completed` log duration includes persistence, while the response's `timings_ms.total` is measured when the result is constructed, before the database write. Failed runs are retained with `status=failed` and `error_code`; internal tracebacks are never sent to the browser.
 
 Additional errors: `unsupported_media_task` (422 for video), `model_not_installed` (503), `device_unavailable` (503), `model_initialization_failed` (503), `model_busy` (429 with `Retry-After`), `inference_failed` (500), `media_changed` (409), and `analysis_not_found` (404). The status and capability endpoints are lightweight and do not load model weights.

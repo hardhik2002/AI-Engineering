@@ -1,5 +1,6 @@
 import hashlib
 import json
+import logging
 import math
 import re
 import shutil
@@ -8,12 +9,14 @@ import warnings
 from datetime import UTC, datetime
 from fractions import Fraction
 from pathlib import Path
+from time import perf_counter
 from uuid import UUID, uuid4
 
 from fastapi import UploadFile
 from PIL import Image, ImageOps, UnidentifiedImageError
 
 from app.core.config import Settings
+from app.core.logging import log_event, safe_traceback
 from app.repositories.media import MediaRepository, public_asset
 from app.schemas.media import MediaAsset
 
@@ -33,6 +36,7 @@ STORED_EXTENSIONS = {
     "video/webm": ".webm",
 }
 CHUNK_SIZE = 1024 * 1024
+logger = logging.getLogger("visionlab.upload")
 
 
 class MediaError(Exception):
@@ -264,6 +268,40 @@ class MediaService:
         self.repository.initialize()
 
     def upload(self, file: UploadFile) -> MediaAsset:
+        started = perf_counter()
+        log_event(logger, "upload.started", "START Media upload received")
+        try:
+            asset = self._upload(file)
+        except Exception as exc:
+            if not getattr(exc, "_visionlab_logged", False):
+                code = exc.code if isinstance(exc, MediaError) else "upload_failed"
+                log_event(
+                    logger,
+                    "upload.failed",
+                    "FAILED Media upload could not be completed",
+                    level=logging.WARNING if isinstance(exc, MediaError) else logging.ERROR,
+                    error_code=code,
+                    duration_ms=round((perf_counter() - started) * 1000, 2),
+                    exception_type=type(exc).__name__ if not isinstance(exc, MediaError) else None,
+                    traceback=safe_traceback(exc)
+                    if not isinstance(exc, MediaError)
+                    and self.settings.environment == "development"
+                    else None,
+                )
+            raise
+        log_event(
+            logger,
+            "upload.completed",
+            "COMPLETE Media upload ready",
+            media_id=asset.media_id,
+            media_type=asset.media_type,
+            mime_type=asset.detected_mime_type,
+            received_bytes=asset.file_size_bytes,
+            duration_ms=round((perf_counter() - started) * 1000, 2),
+        )
+        return asset
+
+    def _upload(self, file: UploadFile) -> MediaAsset:
         original_name = _safe_name(file.filename)
         extension = Path(original_name).suffix.lower()
         if extension not in FORMATS:
@@ -284,6 +322,7 @@ class MediaService:
         size = 0
         checksum = hashlib.sha256()
         committed = False
+        started = perf_counter()
         try:
             with temporary.open("xb") as target:
                 while chunk := file.file.read(CHUNK_SIZE):
@@ -294,6 +333,15 @@ class MediaService:
                         )
                     target.write(chunk)
                     checksum.update(chunk)
+            log_event(
+                logger,
+                "upload.streaming",
+                "COMPLETE Upload bytes streamed",
+                media_id=media_id,
+                media_type=kind,
+                mime_type=mime,
+                received_bytes=size,
+            )
             if size == 0:
                 raise MediaError("invalid_media", "Uploaded file is empty.")
             _check_signature(temporary, mime)
@@ -309,7 +357,34 @@ class MediaService:
                 }
             else:
                 details = _probe_video(temporary, mime, self.settings, thumbnail)
+            log_event(
+                logger,
+                "upload.validated",
+                "COMPLETE Media validation passed",
+                media_id=media_id,
+                media_type=kind,
+                mime_type=mime,
+                received_bytes=size,
+            )
+            log_event(
+                logger,
+                "upload.metadata_extracted",
+                "COMPLETE Media metadata extracted",
+                media_id=media_id,
+                width=details["width"],
+                height=details["height"],
+                video_duration_ms=details["duration_ms"],
+                media_type=kind,
+            )
             thumbnail_ref = thumbnail.name if thumbnail.exists() else None
+            if thumbnail_ref:
+                log_event(
+                    logger,
+                    "upload.thumbnail_created",
+                    "COMPLETE Preview thumbnail created",
+                    media_id=media_id,
+                    media_type=kind,
+                )
             asset = MediaAsset(
                 media_id=media_id,
                 original_filename=original_name,
@@ -324,12 +399,61 @@ class MediaService:
             temporary.replace(final)
             self.repository.insert(asset, final.name, thumbnail_ref)
             committed = True
+            log_event(
+                logger,
+                "upload.persisted",
+                "COMPLETE Media record persisted",
+                media_id=media_id,
+                media_type=kind,
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+            )
             return asset
+        except Exception as exc:
+            code = exc.code if isinstance(exc, MediaError) else "upload_failed"
+            log_event(
+                logger,
+                "upload.failed",
+                "FAILED Media upload rejected",
+                level=logging.WARNING if isinstance(exc, MediaError) else logging.ERROR,
+                media_id=media_id,
+                media_type=kind,
+                mime_type=mime,
+                received_bytes=size,
+                error_code=code,
+                duration_ms=round((perf_counter() - started) * 1000, 2),
+                exception_type=type(exc).__name__ if not isinstance(exc, MediaError) else None,
+                traceback=safe_traceback(exc)
+                if not isinstance(exc, MediaError) and self.settings.environment == "development"
+                else None,
+            )
+            exc._visionlab_logged = True
+            raise
         finally:
-            temporary.unlink(missing_ok=True)
-            if not committed:
-                final.unlink(missing_ok=True)
-                thumbnail.unlink(missing_ok=True)
+            cleanup = [temporary] + ([] if committed else [final, thumbnail])
+            removed = 0
+            for path in cleanup:
+                try:
+                    if path.exists():
+                        path.unlink()
+                        removed += 1
+                except OSError as exc:
+                    log_event(
+                        logger,
+                        "upload.cleanup_failed",
+                        "WARNING Temporary upload cleanup failed",
+                        level=logging.WARNING,
+                        media_id=media_id,
+                        error_code="cleanup_failed",
+                        exception_type=type(exc).__name__,
+                    )
+            if removed:
+                log_event(
+                    logger,
+                    "upload.cleanup_completed",
+                    "COMPLETE Upload files cleaned up",
+                    media_id=media_id,
+                    records_deleted=removed,
+                )
 
     @staticmethod
     def validate_id(media_id: str) -> str:

@@ -80,6 +80,7 @@ class AnalysisSummary(BaseModel):
 
 class AnalysisTimings(BaseModel):
     preprocessing: float = Field(ge=0)
+    model_initialization: float = Field(default=0, ge=0)
     inference: float = Field(ge=0)
     postprocessing: float = Field(ge=0)
     total: float = Field(ge=0)
