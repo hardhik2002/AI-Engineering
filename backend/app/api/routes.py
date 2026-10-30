@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/v1")
 def health(request: Request) -> HealthResponse:
     settings = request.app.state.settings
     return HealthResponse(
-        status="ok", service="visionlab-api", version="0.3.0", environment=settings.environment
+        status="ok", service="visionlab-api", version="0.4.0", environment=settings.environment
     )
 
 

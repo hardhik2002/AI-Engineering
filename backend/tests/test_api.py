@@ -23,7 +23,7 @@ def test_health_and_request_id(client: TestClient) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "visionlab-api",
-        "version": "0.3.0",
+        "version": "0.4.0",
         "environment": "test",
     }
     assert response.headers["X-Request-ID"]
@@ -40,7 +40,9 @@ def test_capabilities_report_only_media_as_available(client: TestClient) -> None
         "video_preview",
     }
     assert len([item for item in capabilities if item["status"] == "planned"]) == 2
-    assert next(item for item in capabilities if item["id"] == "captioning")["status"] == "unavailable"
+    assert (
+        next(item for item in capabilities if item["id"] == "captioning")["status"] == "unavailable"
+    )
     assert len([item for item in capabilities if item["status"] == "unavailable"]) == 3
 
 

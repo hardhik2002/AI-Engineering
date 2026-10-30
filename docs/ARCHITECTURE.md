@@ -1,4 +1,4 @@
-# VisionLab AI architecture — Phase 3
+# VisionLab AI architecture — Phase 4
 
 The app remains a modular monolith. FastAPI serves uploaded media and vision results; React consumes the same typed JSON contract. SQLite stores metadata and every completed or failed analysis run. There is no authentication, external queue, or cloud inference in this phase.
 
@@ -7,9 +7,13 @@ flowchart LR
   Browser[React workspace] -->|media ID, analysis request| API[FastAPI routes]
   API --> Media[MediaService]
   API --> Analysis[AnalysisService]
+  API --> Caption[CaptionService]
   Analysis -->|bounded semaphore| Detector[YOLO26Detector]
+  Caption -->|bounded semaphore| Florence[Florence2CaptionProvider]
   Detector --> Weights[(ignored model cache)]
+  Florence --> Weights
   Analysis --> DB[(SQLite media and analyses)]
+  Caption --> DB
   Media --> Files[(ignored original media)]
   Browser -->|saved results| API
 ```
@@ -20,7 +24,11 @@ YOLO26 initializes lazily behind a lock and stays cached in one API process. An 
 
 Startup creates the `analyses` table and index with `IF NOT EXISTS`, preserving the Phase 2 `media` table. Each analysis gets a new UUID. Success stores the full typed result; a failure stores status and error code. Foreign keys cascade analysis rows when media is deleted. List and get endpoints validate the media ID before querying, and only the newest 100 runs are listed. A model status read never loads weights or downloads anything. The explicit install command is the only automatic model downloader.
 
-The UI has one shared active media ID and analysis ID. Image Analysis and Objects & regions reuse saved detections. Display filters are local React state and do not cause inference. Inference parameters require a new run. The other AI modules remain planned. Video upload and playback remain available, but Phase 3 analysis rejects video explicitly.
+The UI has one shared active media ID and analysis ID. Image Analysis and Objects & regions reuse saved detections. Display filters are local React state and do not cause inference. Inference parameters require a new run. VQA and accessible descriptions remain planned. Video upload and playback remain available, but AI analysis rejects video explicitly.
+
+## Florence captioning (Phase 4)
+
+Caption routes are synchronous FastAPI handlers, so Florence loading and generation execute in the framework thread pool. `CaptionService` holds a one-request semaphore and validates uploaded image IDs before decoding EXIF-oriented pixels. Selected-object requests load a saved YOLO analysis and use its server-side detection ID and normalized box to crop; callers cannot supply file paths or coordinates. `Florence2CaptionProvider` loads a pinned local checkpoint lazily under a lock and caches one model instance. Caption records use the existing `analyses` SQLite table with a distinct task value and media foreign key; YOLO queries filter to object-detection records. Media deletion cascades to both. The React image layer renders Florence regions and YOLO boxes in the existing zoom/pan coordinate space, with independent visibility controls.
 
 ## Observability layer (Phase 3.5)
 

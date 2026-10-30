@@ -171,7 +171,12 @@ class Florence2CaptionProvider:
         started = perf_counter()
         try:
             inputs = self._processor(text=prompt, images=image, return_tensors="pt")
-            inputs = {key: value.to(self._device) for key, value in inputs.items()}
+            inputs = {
+                key: value.to(self._device, dtype=torch.float16)
+                if key == "pixel_values" and self._device.startswith("cuda")
+                else value.to(self._device)
+                for key, value in inputs.items()
+            }
             with torch.inference_mode():
                 generated = self._model.generate(
                     **inputs,

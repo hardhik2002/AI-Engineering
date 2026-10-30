@@ -18,12 +18,19 @@ def test_real_florence_tasks_and_yolo_crop(tmp_path: Path):
     model_root = Path("data/models").resolve()
     if not image_path.is_file() or not (model_root / "florence2/model.safetensors").is_file():
         pytest.skip("Install Florence-2 and provide a real smoke-test image")
-    settings = Settings(environment="test", model_root=model_root,
+    settings = Settings(
+        environment="test",
+        model_root=model_root,
         database_url=f"sqlite:///{tmp_path / 'smoke.sqlite'}",
-        media_root=tmp_path / "media", thumbnail_root=tmp_path / "thumbs", _env_file=None)
+        media_root=tmp_path / "media",
+        thumbnail_root=tmp_path / "thumbs",
+        _env_file=None,
+    )
     with TestClient(create_app(settings)) as client:
         with image_path.open("rb") as stream:
-            uploaded = client.post("/api/v1/media/upload", files={"file": ("sample.jpg", stream, "image/jpeg")})
+            uploaded = client.post(
+                "/api/v1/media/upload", files={"file": ("sample.jpg", stream, "image/jpeg")}
+            )
         assert uploaded.status_code == 201, uploaded.text
         media_id = uploaded.json()["media_id"]
         root = f"/api/v1/media/{media_id}"
@@ -31,8 +38,13 @@ def test_real_florence_tasks_and_yolo_crop(tmp_path: Path):
             response = client.post(f"{root}/caption", json={"mode": mode})
             assert response.status_code == 201, response.text
             assert response.json()["text"]
-            print(mode, response.json()["text"], response.json()["model_load_ms"],
-                  response.json()["inference_ms"], flush=True)
+            print(
+                mode,
+                response.json()["text"],
+                response.json()["model_load_ms"],
+                response.json()["inference_ms"],
+                flush=True,
+            )
         dense = client.post(f"{root}/dense-regions")
         assert dense.status_code == 201, dense.text
         assert dense.json()["regions"], "Sample image should yield real Florence regions"
@@ -44,11 +56,20 @@ def test_real_florence_tasks_and_yolo_crop(tmp_path: Path):
         detection = client.post(f"{root}/analyze")
         assert detection.status_code == 201, detection.text
         assert detection.json()["detections"]
-        described = client.post(f"{root}/regions/describe", json={
-            "detection_analysis_id": detection.json()["analysis_id"],
-            "detection_id": detection.json()["detections"][0]["id"]})
+        described = client.post(
+            f"{root}/regions/describe",
+            json={
+                "detection_analysis_id": detection.json()["analysis_id"],
+                "detection_id": detection.json()["detections"][0]["id"],
+            },
+        )
         assert described.status_code == 201, described.text
         assert described.json()["text"]
-        print("selected_object", described.json()["text"], described.json()["inference_ms"], flush=True)
+        print(
+            "selected_object",
+            described.json()["text"],
+            described.json()["inference_ms"],
+            flush=True,
+        )
         assert len(client.get(f"{root}/captions").json()) == 5
         assert len(client.get(f"{root}/analyses").json()) == 1

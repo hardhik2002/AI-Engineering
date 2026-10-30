@@ -15,11 +15,12 @@ interface Props {
   onGenerate: (mode: CaptionMode) => void
   onDense: () => void
   loading: boolean
+  historyLoading: boolean
   error: string
 }
 
 export function CaptionInspector({ imageReady, model, records, selected, selectedRegionId, showRegions,
-  onShowRegions, onSelectRecord, onSelectRegion, onGenerate, onDense, loading, error }: Props) {
+  onShowRegions, onSelectRecord, onSelectRegion, onGenerate, onDense, loading, historyLoading, error }: Props) {
   const [mode, setMode] = useState<CaptionMode>('short')
   const [copied, setCopied] = useState(false)
   const region = selected?.regions.find((item) => item.id === selectedRegionId)
@@ -34,6 +35,7 @@ export function CaptionInspector({ imageReady, model, records, selected, selecte
       {!imageReady && <p className="analysis-hint">Select an uploaded image to use Florence-2.</p>}
     </div>
     {loading && <div className="analysis-message" role="status">Generating with Florence-2… Initial model loading may take longer on CPU.<div className="analysis-progress" role="progressbar" aria-label="Caption generation in progress"><i /></div></div>}
+    {historyLoading && <div className="analysis-message" role="status">Loading saved captions…</div>}
     {error && <div className="analysis-message analysis-error" role="alert">{error}</div>}
     {selected && <div className="analysis-section"><div className="section-label">SAVED RESULT · {selected.task.replaceAll('_', ' ').toUpperCase()}</div>
       {selected.text && <><p className="caption-text">{selected.text}</p><Button type="button" variant="ghost" onClick={() => { void navigator.clipboard.writeText(selected.text ?? '').then(() => setCopied(true)) }}>{copied ? 'Copied' : 'Copy Caption'}</Button></>}

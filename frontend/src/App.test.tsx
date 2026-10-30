@@ -8,6 +8,8 @@ import { getMediaLimits, listMedia, uploadMedia } from '@/lib/media'
 import { useMediaStore } from '@/store/media'
 import { useThemeStore } from '@/store/theme'
 import { analyzeImage, getModels, listAnalyses } from '@/lib/vision'
+import { describeObject, generateCaption, generateDenseRegions, getCaptionModel, listCaptions } from '@/lib/caption'
+import type { CaptionRecord } from '@/types/caption'
 import type { AnalysisRecord } from '@/types/vision'
 import type { MediaAsset } from '@/types/media'
 
@@ -17,6 +19,7 @@ vi.mock('@/lib/media', async (importOriginal) => ({
   listMedia: vi.fn(), getMediaLimits: vi.fn(), uploadMedia: vi.fn(), deleteMedia: vi.fn(),
 }))
 vi.mock('@/lib/vision', () => ({ analyzeImage: vi.fn(), getModels: vi.fn(), listAnalyses: vi.fn() }))
+vi.mock('@/lib/caption', () => ({ describeObject: vi.fn(), generateCaption: vi.fn(), generateDenseRegions: vi.fn(), getCaptionModel: vi.fn(), listCaptions: vi.fn() }))
 
 const imageAsset: MediaAsset = {
   media_id: 'f2af6ea3-92c0-4eba-9afd-d6a9a225e3a9', original_filename: 'garden.png',
@@ -41,6 +44,13 @@ const savedAnalysis: AnalysisRecord = {
   summary: { total_objects: 2, class_counts: { person: 1, car: 1 } },
   timings_ms: { preprocessing: 3, inference: 40, postprocessing: 2, total: 45 }, error_code: null,
 }
+const savedCaption: CaptionRecord = {
+  analysis_id: 'e537cb3a-cef0-44fa-b793-08a5f36db33e', media_id: imageAsset.media_id,
+  task: 'short', status: 'completed', created_at: '2026-10-30T00:00:00Z', completed_at: '2026-10-30T00:00:01Z',
+  model: { provider: 'transformers', checkpoint: 'florence-community/Florence-2-base-ft', revision: 'pinned', device: 'cpu', package_version: '4.57.6' },
+  duration_ms: 80, model_load_ms: 0, inference_ms: 70, text: 'A real model response.', regions: [],
+  detection_analysis_id: null, detection_id: null,
+}
 
 function renderApp(route = '/workspace/captioning') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -56,10 +66,10 @@ describe('VisionLab media workspace', () => {
     useThemeStore.setState({ theme: 'dark' })
     vi.mocked(getHealth).mockResolvedValue({ status: 'ok', service: 'visionlab-api', version: '0.2.0', environment: 'test' })
     vi.mocked(getCapabilities).mockResolvedValue([
-      { id: 'captioning', name: 'Image Captioning', status: 'planned', phase: 4 },
+      { id: 'captioning', name: 'Image Captioning', status: 'unavailable', phase: 4 },
       { id: 'vqa', name: 'Visual Question Answering', status: 'planned', phase: 5 },
       { id: 'analysis', name: 'Image Analysis', status: 'planned', phase: 4 },
-      { id: 'objects', name: 'Object and Region Understanding', status: 'planned', phase: 3 },
+      { id: 'objects', name: 'Object and Region Understanding', status: 'unavailable', phase: 4 },
       { id: 'accessibility', name: 'Accessible Image Descriptions', status: 'planned', phase: 5 },
       { id: 'media_upload', name: 'Media Upload', status: 'available', phase: 2 },
       { id: 'image_preview', name: 'Image Preview', status: 'available', phase: 2 },
@@ -69,9 +79,11 @@ describe('VisionLab media workspace', () => {
     vi.mocked(getMediaLimits).mockResolvedValue({ max_image_bytes: 20971520, max_video_bytes: 262144000, max_video_duration_ms: 600000, max_image_pixels: 40000000 })
     vi.mocked(getModels).mockResolvedValue([{ state: 'ready', name: 'yolo26n.pt', device: 'cpu', detail: null }])
     vi.mocked(listAnalyses).mockResolvedValue([])
+    vi.mocked(getCaptionModel).mockResolvedValue({ state: 'installed_not_loaded', name: 'Florence-2', revision: 'pinned', device: null })
+    vi.mocked(listCaptions).mockResolvedValue([])
   })
 
-  it('keeps the empty state and reports AI capabilities as planned', async () => {
+  it('keeps the empty state and reports current capability status', async () => {
     renderApp()
     expect(await screen.findByText('API connected')).toBeInTheDocument()
     expect(await screen.findByText('Phase 4')).toBeInTheDocument()
@@ -182,5 +194,63 @@ describe('VisionLab media workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: /clip.mp4 video/i }))
     expect(screen.getByText('Video analysis is planned for Phase 6.')).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Analyze Image' })).not.toBeInTheDocument()
+  })
+
+  it('generates a selected caption mode and restores saved Florence text', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset])
+    vi.mocked(generateCaption).mockResolvedValue({ ...savedCaption, task: 'detailed', text: 'A detailed real response.' })
+    renderApp()
+    await screen.findByTestId('image-viewer')
+    fireEvent.change(await screen.findByLabelText('Caption mode'), { target: { value: 'detailed' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Caption' }))
+    await waitFor(() => expect(generateCaption).toHaveBeenCalledWith(imageAsset.media_id, 'detailed'))
+    expect(await screen.findByText('A detailed real response.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Regenerate Caption' })).toBeEnabled()
+    fireEvent.click(screen.getByRole('button', { name: 'Regenerate Caption' }))
+    await waitFor(() => expect(generateCaption).toHaveBeenCalledTimes(2))
+  })
+
+  it('shows saved dense regions with selectable aligned boxes and an independent layer switch', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset])
+    const dense: CaptionRecord = { ...savedCaption, task: 'dense', text: null,
+      regions: [{ id: 'region-1', description: 'A person near a bus', model: savedCaption.model,
+        bounding_box: { x: 0.25, y: 0.2, width: 0.3, height: 0.5 } }] }
+    vi.mocked(listCaptions).mockResolvedValue([dense])
+    vi.mocked(generateDenseRegions).mockResolvedValue(dense)
+    renderApp()
+    const hit = await screen.findByRole('button', { name: 'Select region A person near a bus' })
+    expect(hit).toHaveStyle({ left: '25%', top: '20%', width: '30%', height: '50%' })
+    fireEvent.click(hit)
+    expect(screen.getByText('Normalized box: 0.2500, 0.2000, 0.3000, 0.5000')).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Show Florence regions' }))
+    expect(screen.queryByRole('button', { name: 'Select region A person near a bus' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Dense Regions' }))
+    await waitFor(() => expect(generateDenseRegions).toHaveBeenCalledWith(imageAsset.media_id))
+  })
+
+  it('describes a selected YOLO object and displays the saved description', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset])
+    vi.mocked(listAnalyses).mockResolvedValue([savedAnalysis])
+    vi.mocked(describeObject).mockResolvedValue({ ...savedCaption, task: 'selected_object', text: 'A person by a bus.',
+      detection_analysis_id: savedAnalysis.analysis_id, detection_id: 'd1' })
+    renderApp('/workspace/objects')
+    fireEvent.click(await screen.findByRole('button', { name: 'Select person 92 percent' }))
+    fireEvent.click(screen.getByRole('button', { name: 'Describe Selected Object' }))
+    await waitFor(() => expect(describeObject).toHaveBeenCalledWith(imageAsset.media_id, savedAnalysis.analysis_id, 'd1'))
+    expect(await screen.findByText('A person by a bus.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Select person 92 percent' })).toBeInTheDocument()
+  })
+
+  it('shows caption progress and a correlated backend error', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset])
+    let reject!: (error: Error) => void
+    vi.mocked(generateCaption).mockImplementation(() => new Promise((_, rejectPromise) => { reject = rejectPromise }))
+    renderApp()
+    await screen.findByTestId('image-viewer')
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Generate Caption' })).toBeEnabled())
+    fireEvent.click(screen.getByRole('button', { name: 'Generate Caption' }))
+    expect(await screen.findByRole('progressbar', { name: 'Caption generation in progress' })).toBeInTheDocument()
+    reject(new Error('Florence is unavailable'))
+    expect(await screen.findByRole('alert')).toHaveTextContent('Florence is unavailable')
   })
 })

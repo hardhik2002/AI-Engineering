@@ -59,7 +59,8 @@ class AnalysisRepository:
         started = perf_counter()
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT result_json FROM analyses WHERE media_id=? AND analysis_id=? AND task='object_detection'",
+                """SELECT result_json FROM analyses WHERE media_id=? AND analysis_id=?
+                AND task='object_detection'""",
                 (media_id, analysis_id),
             ).fetchone()
         result = (
@@ -82,7 +83,8 @@ class AnalysisRepository:
         started = perf_counter()
         with self._connect() as connection:
             rows = connection.execute(
-                """SELECT result_json FROM analyses WHERE media_id=? AND task='object_detection' AND result_json IS NOT NULL
+                """SELECT result_json FROM analyses WHERE media_id=?
+                AND task='object_detection' AND result_json IS NOT NULL
                 ORDER BY created_at DESC, analysis_id DESC LIMIT 100""",
                 (media_id,),
             ).fetchall()

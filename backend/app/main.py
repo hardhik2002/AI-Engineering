@@ -73,7 +73,7 @@ def create_app(
             logging.getLogger("visionlab.server"),
             "server.started",
             "COMPLETE VisionLab API started",
-            application_version="0.3.0",
+            application_version="0.4.0",
             environment=settings.environment,
             python_version=platform.python_version(),
             storage_ready=media_service.media_root.is_dir(),
@@ -112,7 +112,7 @@ def create_app(
             "COMPLETE VisionLab API stopped",
         )
 
-    app = FastAPI(title="VisionLab AI API", version="0.3.0", lifespan=lifespan)
+    app = FastAPI(title="VisionLab AI API", version="0.4.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.media_service = media_service
     app.state.detector = detector

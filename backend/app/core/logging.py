@@ -175,13 +175,28 @@ class ConsoleFormatter(logging.Formatter):
         for field in ("media_id", "analysis_id"):
             if payload.get(field):
                 parts.append(f"{field}={str(payload[field])[:8]}")
-        for field in ("model", "device", "model_state", "run_kind", "media_type", "mime_type"):
+        for field in (
+            "model",
+            "device",
+            "model_state",
+            "run_kind",
+            "media_type",
+            "mime_type",
+            "caption_mode",
+            "revision",
+        ):
             if payload.get(field):
                 parts.append(f"{field}={payload[field]}")
         if payload.get("width") is not None and payload.get("height") is not None:
             parts.append(f"size={payload['width']}x{payload['height']}")
         if payload.get("detection_count") is not None:
             parts.append(f"detections={payload['detection_count']}")
+        if payload.get("region_count") is not None:
+            parts.append(f"regions={payload['region_count']}")
+        if payload.get("detection_id"):
+            parts.append(f"detection_id={str(payload['detection_id'])[:8]}")
+        if payload.get("crop_width") is not None and payload.get("crop_height") is not None:
+            parts.append(f"crop={payload['crop_width']}x{payload['crop_height']}")
         if payload.get("valid_box_count") is not None:
             parts.append(f"valid_boxes={payload['valid_box_count']}")
         if isinstance(payload.get("class_counts"), dict):
