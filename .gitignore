@@ -1,9 +1,11 @@
 .venv/
+.cv/
 backend/.venv/
 frontend/node_modules/
 frontend/dist/
 backend/.pytest_cache/
 backend/.ruff_cache/
+backend/data/
 backend/*.egg-info/
 **/__pycache__/
 **/*.py[cod]

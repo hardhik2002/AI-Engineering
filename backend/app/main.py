@@ -1,13 +1,19 @@
 import logging
+from contextlib import asynccontextmanager
 from time import perf_counter
 from uuid import uuid4
 
 from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 
+from app.api.media import router as media_router
 from app.api.routes import router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
+from app.schemas.media import ApiError, ApiErrorDetail
+from app.services.media import MediaError, MediaService
 
 logger = logging.getLogger("visionlab.http")
 
@@ -15,15 +21,35 @@ logger = logging.getLogger("visionlab.http")
 def create_app(settings: Settings | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
-    app = FastAPI(title="VisionLab AI API", version="0.1.0")
+    media_service = MediaService(settings)
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI):
+        media_service.initialize()
+        yield
+
+    app = FastAPI(title="VisionLab AI API", version="0.2.0", lifespan=lifespan)
     app.state.settings = settings
+    app.state.media_service = media_service
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
         allow_credentials=False,
-        allow_methods=["GET"],
-        allow_headers=["Content-Type", "Accept"],
+        allow_methods=["GET", "HEAD", "POST", "DELETE"],
+        allow_headers=["Content-Type", "Accept", "Range"],
+        expose_headers=["Content-Range", "Accept-Ranges", "X-Request-ID"],
     )
+
+    @app.exception_handler(MediaError)
+    async def media_error_handler(_request: Request, error: MediaError) -> JSONResponse:
+        body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
+        return JSONResponse(status_code=error.status_code, content=body.model_dump(),
+                            headers=error.headers)
+
+    @app.exception_handler(RequestValidationError)
+    async def validation_error_handler(_request: Request, _error: RequestValidationError) -> JSONResponse:
+        body = ApiError(error=ApiErrorDetail(code="invalid_request", message="Request validation failed."))
+        return JSONResponse(status_code=422, content=body.model_dump())
 
     @app.middleware("http")
     async def log_request(request: Request, call_next):
@@ -55,6 +81,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return response
 
     app.include_router(router)
+    app.include_router(media_router)
     return app
 
 
