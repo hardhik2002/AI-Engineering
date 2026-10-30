@@ -25,14 +25,22 @@ FORMATS: dict[str, tuple[str, str]] = {
     ".mp4": ("video", "video/mp4"),
     ".webm": ("video", "video/webm"),
 }
-STORED_EXTENSIONS = {"image/jpeg": ".jpg", "image/png": ".png", "image/webp": ".webp",
-                     "video/mp4": ".mp4", "video/webm": ".webm"}
+STORED_EXTENSIONS = {
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "video/mp4": ".mp4",
+    "video/webm": ".webm",
+}
 CHUNK_SIZE = 1024 * 1024
 
 
 class MediaError(Exception):
     def __init__(
-        self, code: str, message: str, status_code: int = 422,
+        self,
+        code: str,
+        message: str,
+        status_code: int = 422,
         headers: dict[str, str] | None = None,
     ) -> None:
         self.code = code
@@ -74,7 +82,9 @@ def _inspect_image(path: Path, mime: str, settings: Settings, thumbnail: Path) -
                     raise MediaError("invalid_media", "Image content does not match its format.")
                 width, height = image.size
                 if width * height > settings.max_image_pixels:
-                    raise MediaError("image_too_large", "Image pixel count exceeds the configured limit.", 413)
+                    raise MediaError(
+                        "image_too_large", "Image pixel count exceeds the configured limit.", 413
+                    )
                 image.verify()
             with Image.open(path) as image:
                 image.load()
@@ -92,22 +102,42 @@ def _inspect_image(path: Path, mime: str, settings: Settings, thumbnail: Path) -
                 return width, height
     except MediaError:
         raise
-    except (OSError, ValueError, Image.DecompressionBombError, Image.DecompressionBombWarning,
-            UnidentifiedImageError) as exc:
+    except (
+        OSError,
+        ValueError,
+        Image.DecompressionBombError,
+        Image.DecompressionBombWarning,
+        UnidentifiedImageError,
+    ) as exc:
         raise MediaError("invalid_media", "Image is malformed or truncated.") from exc
 
 
 def _probe_video(path: Path, mime: str, settings: Settings, thumbnail: Path) -> dict[str, object]:
     if shutil.which(settings.ffprobe_binary) is None:
-        raise MediaError("media_dependency_unavailable", "FFprobe is required for video upload.", 503)
+        raise MediaError(
+            "media_dependency_unavailable", "FFprobe is required for video upload.", 503
+        )
     try:
         probe = subprocess.run(
-            [settings.ffprobe_binary, "-v", "error", "-print_format", "json", "-show_format",
-             "-show_streams", str(path)],
-            capture_output=True, text=True, timeout=settings.probe_timeout_seconds, check=False,
+            [
+                settings.ffprobe_binary,
+                "-v",
+                "error",
+                "-print_format",
+                "json",
+                "-show_format",
+                "-show_streams",
+                str(path),
+            ],
+            capture_output=True,
+            text=True,
+            timeout=settings.probe_timeout_seconds,
+            check=False,
         )
     except (OSError, subprocess.TimeoutExpired) as exc:
-        raise MediaError("video_probe_failed", "Video metadata inspection failed or timed out.") from exc
+        raise MediaError(
+            "video_probe_failed", "Video metadata inspection failed or timed out."
+        ) from exc
     if probe.returncode != 0:
         raise MediaError("invalid_media", "Video is malformed or unsupported.")
     try:
@@ -141,27 +171,56 @@ def _probe_video(path: Path, mime: str, settings: Settings, thumbnail: Path) -> 
         codec = str(video["codec_name"])
         audio = next((s.get("codec_name") for s in streams if s.get("codec_type") == "audio"), None)
         likely_video = codec == "h264" if mime == "video/mp4" else codec in {"vp8", "vp9"}
-        likely_audio = audio is None or audio in ({"aac", "mp3"} if mime == "video/mp4" else {"opus", "vorbis"})
+        likely_audio = audio is None or audio in (
+            {"aac", "mp3"} if mime == "video/mp4" else {"opus", "vorbis"}
+        )
         compatibility = "likely" if likely_video and likely_audio else "uncertain"
     except MediaError:
         raise
-    except (KeyError, TypeError, ValueError, StopIteration, ZeroDivisionError, OverflowError) as exc:
+    except (
+        KeyError,
+        TypeError,
+        ValueError,
+        StopIteration,
+        ZeroDivisionError,
+        OverflowError,
+    ) as exc:
         raise MediaError("invalid_media", "Video metadata is incomplete or invalid.") from exc
 
     if shutil.which(settings.ffmpeg_binary) is not None:
         try:
             poster = subprocess.run(
-                [settings.ffmpeg_binary, "-v", "error", "-y", "-i", str(path),
-                 "-frames:v", "1", "-vf", "scale=512:-2", str(thumbnail)],
-                capture_output=True, timeout=settings.probe_timeout_seconds, check=False,
+                [
+                    settings.ffmpeg_binary,
+                    "-v",
+                    "error",
+                    "-y",
+                    "-i",
+                    str(path),
+                    "-frames:v",
+                    "1",
+                    "-vf",
+                    "scale=512:-1",
+                    str(thumbnail),
+                ],
+                capture_output=True,
+                timeout=settings.probe_timeout_seconds,
+                check=False,
             )
             if poster.returncode != 0 or not thumbnail.is_file() or thumbnail.stat().st_size == 0:
                 raise MediaError("invalid_media", "Video could not be decoded for preview.")
         except (OSError, subprocess.TimeoutExpired) as exc:
-            raise MediaError("video_probe_failed", "Video preview extraction failed or timed out.") from exc
-    return {"width": width, "height": height, "duration_ms": duration_ms,
-            "frame_rate": round(frame_rate, 3) if frame_rate else None,
-            "video_codec": codec, "playback_compatibility": compatibility}
+            raise MediaError(
+                "video_probe_failed", "Video preview extraction failed or timed out."
+            ) from exc
+    return {
+        "width": width,
+        "height": height,
+        "duration_ms": duration_ms,
+        "frame_rate": round(frame_rate, 3) if frame_rate else None,
+        "video_codec": codec,
+        "playback_compatibility": compatibility,
+    }
 
 
 class MediaService:
@@ -184,12 +243,16 @@ class MediaService:
         kind, mime = FORMATS[extension]
         declared = (file.content_type or "").split(";", 1)[0].lower().strip()
         if declared != mime:
-            raise MediaError("invalid_mime_type", "Declared MIME type does not match the file format.")
+            raise MediaError(
+                "invalid_mime_type", "Declared MIME type does not match the file format."
+            )
         media_id = str(uuid4())
         temporary = self.media_root / f".{media_id}.upload"
         final = self.media_root / f"{media_id}{STORED_EXTENSIONS[mime]}"
         thumbnail = self.thumbnail_root / f"{media_id}.jpg"
-        maximum = self.settings.max_image_bytes if kind == "image" else self.settings.max_video_bytes
+        maximum = (
+            self.settings.max_image_bytes if kind == "image" else self.settings.max_video_bytes
+        )
         size = 0
         checksum = hashlib.sha256()
         committed = False
@@ -198,7 +261,9 @@ class MediaService:
                 while chunk := file.file.read(CHUNK_SIZE):
                     size += len(chunk)
                     if size > maximum:
-                        raise MediaError("file_too_large", "File exceeds the configured size limit.", 413)
+                        raise MediaError(
+                            "file_too_large", "File exceeds the configured size limit.", 413
+                        )
                     target.write(chunk)
                     checksum.update(chunk)
             if size == 0:
@@ -206,16 +271,27 @@ class MediaService:
             _check_signature(temporary, mime)
             if kind == "image":
                 width, height = _inspect_image(temporary, mime, self.settings, thumbnail)
-                details: dict[str, object] = {"width": width, "height": height,
-                    "duration_ms": None, "frame_rate": None, "video_codec": None,
-                    "playback_compatibility": None}
+                details: dict[str, object] = {
+                    "width": width,
+                    "height": height,
+                    "duration_ms": None,
+                    "frame_rate": None,
+                    "video_codec": None,
+                    "playback_compatibility": None,
+                }
             else:
                 details = _probe_video(temporary, mime, self.settings, thumbnail)
             thumbnail_ref = thumbnail.name if thumbnail.exists() else None
             asset = MediaAsset(
-                media_id=media_id, original_filename=original_name, media_type=kind,
-                detected_mime_type=mime, file_size_bytes=size, created_at=datetime.now(UTC),
-                sha256=checksum.hexdigest(), thumbnail_available=thumbnail_ref is not None, **details,
+                media_id=media_id,
+                original_filename=original_name,
+                media_type=kind,
+                detected_mime_type=mime,
+                file_size_bytes=size,
+                created_at=datetime.now(UTC),
+                sha256=checksum.hexdigest(),
+                thumbnail_available=thumbnail_ref is not None,
+                **details,
             )
             temporary.replace(final)
             self.repository.insert(asset, final.name, thumbnail_ref)
@@ -257,7 +333,11 @@ class MediaService:
         thumbnail_ref = row["thumbnail_ref"]
         if thumbnail_ref is not None and thumbnail_ref != f"{media_id}.jpg":
             raise MediaError("media_not_found", "Media item was not found.", 404)
-        return asset, self.media_root / expected, self.thumbnail_root / thumbnail_ref if thumbnail_ref else None
+        return (
+            asset,
+            self.media_root / expected,
+            self.thumbnail_root / thumbnail_ref if thumbnail_ref else None,
+        )
 
     def delete(self, media_id: str) -> None:
         _, source, thumbnail = self.paths(media_id)
@@ -272,17 +352,23 @@ def parse_byte_range(header: str | None, size: int) -> tuple[int, int] | None:
         return None
     match = re.fullmatch(r"bytes=(\d*)-(\d*)", header.strip())
     if not match or (not match[1] and not match[2]):
-        raise MediaError("invalid_range", "Invalid byte range.", 416,
-                         {"Content-Range": f"bytes */{size}"})
+        raise MediaError(
+            "invalid_range", "Invalid byte range.", 416, {"Content-Range": f"bytes */{size}"}
+        )
     if not match[1]:
         suffix = int(match[2])
         if suffix == 0:
-            raise MediaError("invalid_range", "Invalid byte range.", 416,
-                             {"Content-Range": f"bytes */{size}"})
+            raise MediaError(
+                "invalid_range", "Invalid byte range.", 416, {"Content-Range": f"bytes */{size}"}
+            )
         return max(0, size - suffix), size - 1
     start = int(match[1])
     end = int(match[2]) if match[2] else size - 1
     if start >= size or start > end:
-        raise MediaError("invalid_range", "Byte range is outside the file.", 416,
-                         {"Content-Range": f"bytes */{size}"})
+        raise MediaError(
+            "invalid_range",
+            "Byte range is outside the file.",
+            416,
+            {"Content-Range": f"bytes */{size}"},
+        )
     return start, min(end, size - 1)

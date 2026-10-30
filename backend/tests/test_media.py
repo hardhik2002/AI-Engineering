@@ -14,8 +14,11 @@ from app.main import create_app
 @pytest.fixture
 def settings(tmp_path: Path) -> Settings:
     return Settings(
-        environment="test", database_url=f"sqlite:///{tmp_path / 'media.sqlite3'}",
-        media_root=tmp_path / "media", thumbnail_root=tmp_path / "thumbnails", _env_file=None,
+        environment="test",
+        database_url=f"sqlite:///{tmp_path / 'media.sqlite3'}",
+        media_root=tmp_path / "media",
+        thumbnail_root=tmp_path / "thumbnails",
+        _env_file=None,
     )
 
 
@@ -25,7 +28,9 @@ def client(settings: Settings):
         yield test_client
 
 
-def image_bytes(format: str = "PNG", size: tuple[int, int] = (24, 16), orientation: int | None = None) -> bytes:
+def image_bytes(
+    format: str = "PNG", size: tuple[int, int] = (24, 16), orientation: int | None = None
+) -> bytes:
     image = Image.new("RGB", size, "#4c9a87")
     buffer = io.BytesIO()
     exif = Image.Exif()
@@ -39,7 +44,9 @@ def upload(client: TestClient, name: str, content: bytes, mime: str = "image/png
     return client.post("/api/v1/media/upload", files={"file": (name, content, mime)})
 
 
-def test_image_upload_persistence_listing_thumbnail_and_delete(settings: Settings, client: TestClient) -> None:
+def test_image_upload_persistence_listing_thumbnail_and_delete(
+    settings: Settings, client: TestClient
+) -> None:
     content = image_bytes("JPEG", (24, 16), orientation=6)
     response = upload(client, r"C:\unsafe\portrait.jpg", content, "image/jpeg")
     assert response.status_code == 201, response.text
@@ -69,10 +76,19 @@ def test_image_upload_persistence_listing_thumbnail_and_delete(settings: Setting
 
 def test_upload_rejects_invalid_files_and_cleans_up(settings: Settings, client: TestClient) -> None:
     assert client.post("/api/v1/media/upload").status_code == 422
-    assert upload(client, "bad.gif", b"GIF89a", "image/gif").json()["error"]["code"] == "unsupported_format"
-    assert upload(client, "bad.png", image_bytes(), "image/jpeg").json()["error"]["code"] == "invalid_mime_type"
+    assert (
+        upload(client, "bad.gif", b"GIF89a", "image/gif").json()["error"]["code"]
+        == "unsupported_format"
+    )
+    assert (
+        upload(client, "bad.png", image_bytes(), "image/jpeg").json()["error"]["code"]
+        == "invalid_mime_type"
+    )
     assert upload(client, "bad.png", b"not a png").json()["error"]["code"] == "invalid_media"
-    assert upload(client, "bad.png", b"\x89PNG\r\n\x1a\nbroken").json()["error"]["code"] == "invalid_media"
+    assert (
+        upload(client, "bad.png", b"\x89PNG\r\n\x1a\nbroken").json()["error"]["code"]
+        == "invalid_media"
+    )
     assert list(settings.media_root.iterdir()) == []
     assert list(settings.thumbnail_root.iterdir()) == []
     assert client.get("/api/v1/media").json() == []
@@ -116,15 +132,32 @@ def video_file(tmp_path: Path) -> bytes:
     if not binary:
         pytest.skip("FFmpeg is not installed")
     path = tmp_path / "sample.mp4"
-    command = [binary, "-v", "error", "-y", "-f", "lavfi", "-i", "color=c=red:s=64x48:d=1",
-               "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", str(path)]
+    command = [
+        binary,
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        "color=c=red:s=64x48:d=1",
+        "-c:v",
+        "libx264",
+        "-pix_fmt",
+        "yuv420p",
+        "-movflags",
+        "+faststart",
+        str(path),
+    ]
     result = subprocess.run(command, capture_output=True, timeout=20, check=False)
     if result.returncode != 0:
         pytest.skip("Installed FFmpeg cannot generate the video test fixture")
     return path.read_bytes()
 
 
-def test_video_upload_metadata_range_and_duration(settings: Settings, client: TestClient, video_file: bytes) -> None:
+def test_video_upload_metadata_range_and_duration(
+    settings: Settings, client: TestClient, video_file: bytes
+) -> None:
     response = upload(client, "clip.mp4", video_file, "video/mp4")
     assert response.status_code == 201, response.text
     asset = response.json()
@@ -140,7 +173,9 @@ def test_video_upload_metadata_range_and_duration(settings: Settings, client: Te
     assert segment.content == video_file[:32]
     assert segment.headers["content-type"] == "video/mp4"
     assert client.get(f"/api/v1/media/{media_id}/thumbnail").status_code == 200
-    with TestClient(create_app(settings.model_copy(update={"max_video_duration_ms": 100}))) as limited:
+    with TestClient(
+        create_app(settings.model_copy(update={"max_video_duration_ms": 100}))
+    ) as limited:
         too_long = upload(limited, "clip.mp4", video_file, "video/mp4")
         assert too_long.status_code == 413
         assert too_long.json()["error"]["code"] == "video_too_long"

@@ -28,4 +28,3 @@ class ApiErrorDetail(BaseModel):
 
 class ApiError(BaseModel):
     error: ApiErrorDetail
-

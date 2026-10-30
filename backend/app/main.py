@@ -43,12 +43,17 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     @app.exception_handler(MediaError)
     async def media_error_handler(_request: Request, error: MediaError) -> JSONResponse:
         body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
-        return JSONResponse(status_code=error.status_code, content=body.model_dump(),
-                            headers=error.headers)
+        return JSONResponse(
+            status_code=error.status_code, content=body.model_dump(), headers=error.headers
+        )
 
     @app.exception_handler(RequestValidationError)
-    async def validation_error_handler(_request: Request, _error: RequestValidationError) -> JSONResponse:
-        body = ApiError(error=ApiErrorDetail(code="invalid_request", message="Request validation failed."))
+    async def validation_error_handler(
+        _request: Request, _error: RequestValidationError
+    ) -> JSONResponse:
+        body = ApiError(
+            error=ApiErrorDetail(code="invalid_request", message="Request validation failed.")
+        )
         return JSONResponse(status_code=422, content=body.model_dump())
 
     @app.middleware("http")
@@ -86,4 +91,3 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
 
 app = create_app()
-

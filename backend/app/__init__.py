@@ -1,2 +1,1 @@
 """VisionLab AI backend."""
-

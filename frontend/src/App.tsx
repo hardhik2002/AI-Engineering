@@ -1,16 +1,23 @@
-import { useEffect } from 'react'
-import { useQuery } from '@tanstack/react-query'
+import { useEffect, useState } from 'react'
+import { useQuery, useQueryClient } from '@tanstack/react-query'
 import {
-  Accessibility, ArrowRight, Box, Check, ChevronDown, CircleHelp, CloudOff,
-  Image as ImageIcon, Layers3, MessageCircleQuestion, Moon, PanelRightClose,
-  ScanEye, Sparkles, Sun, Upload, WandSparkles,
+  Accessibility, ArrowRight, Box, Check, CircleHelp, CloudOff,
+  Image as ImageIcon, Layers3, MessageCircleQuestion, Moon,
+  ScanEye, Sparkles, Sun, WandSparkles,
   type LucideIcon,
 } from 'lucide-react'
 import { NavLink, Navigate, Route, Routes, useParams } from 'react-router-dom'
 import { Button } from '@/components/ui/button'
+import { MediaInspector } from '@/components/media/MediaInspector'
+import { MediaLibrary } from '@/components/media/MediaLibrary'
+import { MediaUploader } from '@/components/media/MediaUploader'
+import { MediaViewer } from '@/components/media/MediaViewer'
 import { getCapabilities, getHealth } from '@/lib/api'
+import { deleteMedia, formatBytes, listMedia, mediaErrorMessage } from '@/lib/media'
+import { useMediaStore } from '@/store/media'
 import { useThemeStore } from '@/store/theme'
 import type { CapabilityId, CapabilityStatus } from '@/types/api'
+import type { MediaAsset } from '@/types/media'
 
 interface ModuleInfo {
   id: CapabilityId
@@ -62,6 +69,13 @@ function Workstation() {
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
   const health = useQuery({ queryKey: ['health'], queryFn: getHealth, refetchInterval: 30_000 })
   const capabilities = useQuery({ queryKey: ['capabilities'], queryFn: getCapabilities })
+  const media = useQuery({ queryKey: ['media'], queryFn: listMedia, enabled: health.isSuccess })
+  const queryClient = useQueryClient()
+  const activeMediaId = useMediaStore((state) => state.activeMediaId)
+  const selectMedia = useMediaStore((state) => state.selectMedia)
+  const [deleting, setDeleting] = useState(false)
+  const [deleteError, setDeleteError] = useState('')
+  const [uploadNotice, setUploadNotice] = useState('')
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -72,6 +86,30 @@ function Workstation() {
   const currentCapability = capabilities.data?.find((item) => item.id === current.id)
   const apiState = health.isPending ? 'checking' : health.isError ? 'disconnected' : 'connected'
   const CurrentIcon = current.icon
+  const assets = media.data ?? []
+  const activeAsset = assets.find((asset) => asset.media_id === activeMediaId) ?? assets[0] ?? null
+
+  function onUploaded(asset: MediaAsset) {
+    setUploadNotice(`${asset.original_filename} uploaded and ready.`)
+    selectMedia(asset.media_id)
+    queryClient.setQueryData<MediaAsset[]>(['media'], (current) =>
+      [asset, ...(current ?? []).filter((item) => item.media_id !== asset.media_id)])
+    void queryClient.invalidateQueries({ queryKey: ['media'] })
+  }
+
+  async function onDelete(mediaId: string) {
+    if (!window.confirm('Delete this media file from your local library?')) return
+    setDeleting(true)
+    setDeleteError('')
+    try {
+      await deleteMedia(mediaId)
+      selectMedia(assets.find((asset) => asset.media_id !== mediaId)?.media_id ?? null)
+      queryClient.setQueryData<MediaAsset[]>(['media'], (current) =>
+        (current ?? []).filter((item) => item.media_id !== mediaId))
+      await queryClient.invalidateQueries({ queryKey: ['media'] })
+    } catch (error) { setDeleteError(mediaErrorMessage(error)) }
+    finally { setDeleting(false) }
+  }
 
   return <div className="app-shell">
     <a className="skip-link" href="#main-content">Skip to workspace</a>
@@ -110,7 +148,7 @@ function Workstation() {
           })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-info"><Layers3 size={16} /><span>Learning workspace</span><span className="phase-pill">PHASE 01</span></div>
+          <div className="sidebar-info"><Layers3 size={16} /><span>Learning workspace</span><span className="phase-pill">PHASE 02</span></div>
           <div className="sidebar-note">Explore five image-understanding capabilities as each real provider is integrated.</div>
         </div>
       </aside>
@@ -123,49 +161,49 @@ function Workstation() {
             <p>{current.description}</p>
           </div>
           <div className="heading-actions">
-            <span className="phase-badge"><span />Phase 1 foundation</span>
+            <span className="phase-badge"><span />Phase 2 media workspace</span>
           </div>
         </div>
 
         <section className="viewer-panel" aria-labelledby="viewer-title">
           <div className="panel-toolbar">
-            <div className="panel-title"><span className="panel-title-icon"><ImageIcon size={17} /></span><span id="viewer-title">Media viewer</span><span className="panel-tag">NO MEDIA</span></div>
+            <div className="panel-title"><span className="panel-title-icon"><ImageIcon size={17} /></span><span id="viewer-title">Media viewer</span><span className="panel-tag">{activeAsset ? activeAsset.media_type.toUpperCase() : 'NO MEDIA'}</span></div>
             <div className="viewer-actions">
               <span className="tool-label">Original media</span>
-              <ChevronDown size={15} className="muted-icon" aria-hidden="true" />
-              <span className="vertical-rule" />
-              <Button variant="ghost" size="icon" disabled aria-label="Viewer settings unavailable until media upload" title="Available in Phase 2"><PanelRightClose size={17} /></Button>
+              {activeAsset && <><span className="vertical-rule" /><MediaUploader compact disabled={!health.isSuccess} onUploaded={onUploaded} /></>}
             </div>
           </div>
-          <div className="viewer-stage">
+          {uploadNotice && <div className="upload-success-banner" role="status"><Check size={15} /><span>{uploadNotice}</span><button type="button" onClick={() => setUploadNotice('')} aria-label="Dismiss upload message">×</button></div>}
+          <div className={`viewer-stage ${activeAsset ? 'has-media' : ''}`}>
+            {activeAsset ? <MediaViewer asset={activeAsset} /> : health.isPending || media.isPending && health.isSuccess ?
+              <div className="viewer-state">Loading media workspace…</div> : health.isError ?
+                <div className="viewer-state">Backend disconnected. Start the API to upload media.</div> : <>
             <div className="stage-grid" aria-hidden="true" />
             <div className="stage-corner corner-tl" aria-hidden="true" /><div className="stage-corner corner-tr" aria-hidden="true" />
             <div className="stage-corner corner-bl" aria-hidden="true" /><div className="stage-corner corner-br" aria-hidden="true" />
-            <div className="empty-visual">
-              <div className="empty-icon-wrap"><div className="empty-icon-halo" /><ImageIcon size={28} strokeWidth={1.5} /></div>
-              <div className="empty-eyebrow">YOUR CANVAS IS READY</div>
-              <h2>No media loaded</h2>
-              <p>Secure image and video upload will be available in Phase 2. Analysis will always appear alongside the original media.</p>
-              <Button disabled title="Media upload arrives in Phase 2"><Upload size={16} />Upload media <span className="button-soon">SOON</span></Button>
-            </div>
+            <MediaUploader onUploaded={onUploaded} />
             <span className="stage-coordinate stage-coordinate-top">X 00.000 &nbsp; Y 00.000</span>
             <span className="stage-coordinate stage-coordinate-bottom">VIEWPORT / EMPTY</span>
+            </>}
           </div>
-          <div className="viewer-footer"><span><span className="footer-dot" />Awaiting media</span><span>Overlays appear here when providers are enabled</span></div>
+          <div className="viewer-footer"><span><span className="footer-dot" />{activeAsset ? activeAsset.original_filename : 'Awaiting media'}</span><span>{activeAsset ? `${activeAsset.width} × ${activeAsset.height} · ${formatBytes(activeAsset.file_size_bytes)}` : 'Overlays appear when providers are enabled'}</span></div>
         </section>
 
-        <section className="foundation-strip" aria-label="Phase one progress">
+        <MediaLibrary assets={assets} activeId={activeAsset?.media_id ?? null} onSelect={selectMedia} loading={health.isPending || (media.isPending && health.isSuccess)} error={media.isError || health.isError} onRetry={() => { void health.refetch(); void media.refetch() }} />
+
+        <section className="foundation-strip" aria-label="Phase two progress">
           <div className="foundation-icon"><Check size={18} /></div>
-          <div><strong>Foundation active</strong><span>Application shell, typed API contracts, configuration and structured logging.</span></div>
-          <span className="foundation-index">01 / 08</span>
+          <div><strong>Media workspace active</strong><span>Upload, inspect and reopen real media across all five modules.</span></div>
+          <span className="foundation-index">02 / 08</span>
         </section>
       </main>
 
       <aside className="inspector" aria-label="AI results inspector">
         <div className="inspector-header"><div><span className="inspector-overline">INTELLIGENCE PANEL</span><h2>AI Inspector</h2></div><Sparkles size={19} /></div>
-        <div className="inspector-tabs"><span className="inspector-tab active">Results</span><span className="inspector-tab">Details</span></div>
+        <div className="inspector-tabs"><span className="inspector-tab active">Overview</span></div>
         <div className="inspector-content">
-          <div className="inspector-empty"><div className="inspector-empty-icon"><WandSparkles size={22} /></div><strong>No analysis yet</strong><p>Results from real models will appear here with confidence, source context and model provenance.</p></div>
+          <div className="inspector-empty"><div className="inspector-empty-icon"><WandSparkles size={22} /></div><strong>No AI analysis yet</strong><p>Inference is planned for later phases. Model results will be linked to this media when available.</p></div>
+          <MediaInspector asset={activeAsset} onDelete={(id) => void onDelete(id)} deleting={deleting} error={deleteError} />
           <div className="inspector-section"><div className="section-label">SELECTED MODULE</div><div className="capability-card"><div className="capability-card-top"><span className="capability-icon"><CurrentIcon size={18} /></span><StatusLabel status={currentCapability?.status ?? 'unknown'} /></div><strong>{current.name}</strong><p>{current.insight}</p><div className="capability-card-foot"><span>Planned integration</span><span>Phase {currentCapability?.phase ?? '—'}</span></div></div></div>
           <div className="inspector-section"><div className="section-label">SYSTEM STATUS</div>
             {health.isSuccess && health.data ? <div className="system-row"><span className="system-icon online"><Check size={16} /></span><div><strong>Backend online</strong><span>Version {health.data.version} · {health.data.environment}</span></div></div> :

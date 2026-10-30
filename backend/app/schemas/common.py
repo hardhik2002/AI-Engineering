@@ -39,4 +39,3 @@ class Detection(BaseModel):
     confidence: float = Field(ge=0, le=1)
     box: NormalizedBox
     tracking_id: str | None = None
-

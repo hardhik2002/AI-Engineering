@@ -1,7 +1,7 @@
 import sqlite3
+from collections.abc import Iterator
 from contextlib import contextmanager
 from pathlib import Path
-from collections.abc import Iterator
 
 from app.schemas.media import MediaAsset
 
@@ -33,7 +33,9 @@ class MediaRepository:
                     thumbnail_ref TEXT
                 )"""
             )
-            connection.execute("CREATE INDEX IF NOT EXISTS idx_media_created ON media(created_at DESC)")
+            connection.execute(
+                "CREATE INDEX IF NOT EXISTS idx_media_created ON media(created_at DESC)"
+            )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
@@ -54,13 +56,18 @@ class MediaRepository:
                     :video_codec, :playback_compatibility, :created_at, :sha256,
                     :storage_ref, :thumbnail_ref
                 )""",
-                {**asset.model_dump(mode="json", exclude={"thumbnail_available"}),
-                 "storage_ref": storage_ref, "thumbnail_ref": thumbnail_ref},
+                {
+                    **asset.model_dump(mode="json", exclude={"thumbnail_available"}),
+                    "storage_ref": storage_ref,
+                    "thumbnail_ref": thumbnail_ref,
+                },
             )
 
     def get(self, media_id: str) -> sqlite3.Row | None:
         with self._connect() as connection:
-            return connection.execute("SELECT * FROM media WHERE media_id = ?", (media_id,)).fetchone()
+            return connection.execute(
+                "SELECT * FROM media WHERE media_id = ?", (media_id,)
+            ).fetchone()
 
     def list(self, limit: int) -> list[sqlite3.Row]:
         with self._connect() as connection:

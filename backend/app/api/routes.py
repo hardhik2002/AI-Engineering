@@ -27,4 +27,3 @@ def capabilities() -> list[Capability]:
         Capability(id="image_preview", name="Image Preview", status="available", phase=2),
         Capability(id="video_preview", name="Video Preview", status="available", phase=2),
     ]
-

@@ -35,7 +35,9 @@ def test_capabilities_report_only_media_as_available(client: TestClient) -> None
     capabilities = response.json()
     assert len(capabilities) == 8
     assert {item["id"] for item in capabilities if item["status"] == "available"} == {
-        "media_upload", "image_preview", "video_preview"
+        "media_upload",
+        "image_preview",
+        "video_preview",
     }
     assert len([item for item in capabilities if item["status"] == "planned"]) == 5
 
@@ -58,4 +60,3 @@ def test_log_formatter_emits_json() -> None:
     payload = json.loads(JsonFormatter().format(record))
     assert payload["message"] == "ready"
     assert payload["request_id"] == "test-id"
-
