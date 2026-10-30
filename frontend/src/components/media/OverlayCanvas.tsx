@@ -7,9 +7,12 @@ interface Props {
   detections?: DetectionOverlay[]
   regions?: RegionOverlay[]
   className?: string
+  selectedId?: string | null
+  showLabels?: boolean
+  showConfidence?: boolean
 }
 
-export function OverlayCanvas({ width, height, detections = [], regions = [], className = '' }: Props) {
+export function OverlayCanvas({ width, height, detections = [], regions = [], className = '', selectedId, showLabels = true, showConfidence = true }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   useEffect(() => {
     const canvas = canvasRef.current
@@ -28,11 +31,26 @@ export function OverlayCanvas({ width, height, detections = [], regions = [], cl
         (region.box.x2 - region.box.x1) * width, (region.box.y2 - region.box.y1) * height)
     }
     for (const detection of detections) {
-      context.strokeStyle = '#7ce6c4'
-      context.lineWidth = 2
-      context.strokeRect(detection.box.x1 * width, detection.box.y1 * height,
-        (detection.box.x2 - detection.box.x1) * width, (detection.box.y2 - detection.box.y1) * height)
+      const hue = ((detection.classId ?? 0) * 47 + 154) % 360
+      const color = `hsl(${hue} 85% 65%)`
+      const x = detection.box.x1 * width
+      const y = detection.box.y1 * height
+      const boxWidth = (detection.box.x2 - detection.box.x1) * width
+      const boxHeight = (detection.box.y2 - detection.box.y1) * height
+      context.strokeStyle = color
+      context.lineWidth = selectedId === detection.id ? 4 : 2
+      context.strokeRect(x, y, boxWidth, boxHeight)
+      const caption = [showLabels ? detection.label : '', showConfidence ? `${Math.round(detection.confidence * 100)}%` : ''].filter(Boolean).join(' ')
+      if (caption) {
+        context.font = '600 11px sans-serif'
+        const labelWidth = Math.min(width - x, context.measureText(caption).width + 10)
+        const labelY = y >= 21 ? y - 20 : y
+        context.fillStyle = 'rgba(4, 10, 15, .88)'
+        context.fillRect(x, labelY, labelWidth, 19)
+        context.fillStyle = color
+        context.fillText(caption, x + 5, labelY + 13)
+      }
     }
-  }, [width, height, detections, regions])
+  }, [width, height, detections, regions, selectedId, showLabels, showConfidence])
   return <canvas ref={canvasRef} className={`overlay-canvas ${className}`} style={{ width, height }} aria-hidden="true" />
 }

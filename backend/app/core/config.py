@@ -23,6 +23,15 @@ class Settings(BaseSettings):
     ffprobe_binary: str = "ffprobe"
     ffmpeg_binary: str = "ffmpeg"
     probe_timeout_seconds: int = Field(default=15, gt=0, le=120)
+    model_root: Path = Path("data/models")
+    detection_model: Literal["yolo26n.pt"] = "yolo26n.pt"
+    detection_device: Literal["auto", "cpu", "cuda"] = "auto"
+    detection_confidence: float = Field(default=0.25, gt=0, le=1)
+    detection_iou: float = Field(default=0.45, ge=0, le=1)
+    detection_image_size: int = Field(default=640, ge=160, le=1280)
+    detection_max_detections: int = Field(default=100, ge=1, le=300)
+    detection_concurrency: int = Field(default=1, ge=1, le=4)
+    detection_max_source_side: int = Field(default=2048, ge=640, le=8192)
 
     @property
     def allowed_origins(self) -> list[str]:

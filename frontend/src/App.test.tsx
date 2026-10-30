@@ -7,6 +7,8 @@ import { getCapabilities, getHealth } from '@/lib/api'
 import { getMediaLimits, listMedia, uploadMedia } from '@/lib/media'
 import { useMediaStore } from '@/store/media'
 import { useThemeStore } from '@/store/theme'
+import { analyzeImage, getModels, listAnalyses } from '@/lib/vision'
+import type { AnalysisRecord } from '@/types/vision'
 import type { MediaAsset } from '@/types/media'
 
 vi.mock('@/lib/api', () => ({ getHealth: vi.fn(), getCapabilities: vi.fn() }))
@@ -14,6 +16,7 @@ vi.mock('@/lib/media', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@/lib/media')>()),
   listMedia: vi.fn(), getMediaLimits: vi.fn(), uploadMedia: vi.fn(), deleteMedia: vi.fn(),
 }))
+vi.mock('@/lib/vision', () => ({ analyzeImage: vi.fn(), getModels: vi.fn(), listAnalyses: vi.fn() }))
 
 const imageAsset: MediaAsset = {
   media_id: 'f2af6ea3-92c0-4eba-9afd-d6a9a225e3a9', original_filename: 'garden.png',
@@ -27,6 +30,17 @@ const videoAsset: MediaAsset = {
   media_type: 'video', detected_mime_type: 'video/mp4', width: 640, height: 360,
   duration_ms: 5000, frame_rate: 30, video_codec: 'h264', playback_compatibility: 'likely',
 }
+const savedAnalysis: AnalysisRecord = {
+  analysis_id: 'e537cb3a-cef0-44fa-b793-08a5f36db32e', media_id: imageAsset.media_id,
+  status: 'completed', task: 'object_detection', created_at: '2026-10-30T00:00:00Z', completed_at: '2026-10-30T00:00:01Z',
+  model: { provider: 'ultralytics', name: 'yolo26n.pt', device: 'cpu', version: 'YOLO26', package_version: '8.4.193' },
+  image: { width: 1200, height: 800, coordinate_space: 'exif_oriented' },
+  parameters: { confidence: 0.25, iou: 0.45, image_size: 640, max_detections: 100 },
+  detections: [{ id: 'd1', class_id: 0, label: 'person', confidence: 0.92, bounding_box: { x: 0.25, y: 0.2, width: 0.3, height: 0.5 } },
+    { id: 'd2', class_id: 2, label: 'car', confidence: 0.48, bounding_box: { x: 0.7, y: 0.3, width: 0.2, height: 0.2 } }],
+  summary: { total_objects: 2, class_counts: { person: 1, car: 1 } },
+  timings_ms: { preprocessing: 3, inference: 40, postprocessing: 2, total: 45 }, error_code: null,
+}
 
 function renderApp(route = '/workspace/captioning') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -38,7 +52,7 @@ describe('VisionLab media workspace', () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
-    useMediaStore.setState({ activeMediaId: null })
+    useMediaStore.setState({ activeMediaId: null, activeAnalysisId: null })
     useThemeStore.setState({ theme: 'dark' })
     vi.mocked(getHealth).mockResolvedValue({ status: 'ok', service: 'visionlab-api', version: '0.2.0', environment: 'test' })
     vi.mocked(getCapabilities).mockResolvedValue([
@@ -53,6 +67,8 @@ describe('VisionLab media workspace', () => {
     ])
     vi.mocked(listMedia).mockResolvedValue([])
     vi.mocked(getMediaLimits).mockResolvedValue({ max_image_bytes: 20971520, max_video_bytes: 262144000, max_video_duration_ms: 600000, max_image_pixels: 40000000 })
+    vi.mocked(getModels).mockResolvedValue([{ state: 'ready', name: 'yolo26n.pt', device: 'cpu', detail: null }])
+    vi.mocked(listAnalyses).mockResolvedValue([])
   })
 
   it('keeps the empty state and reports AI capabilities as planned', async () => {
@@ -110,5 +126,42 @@ describe('VisionLab media workspace', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Switch to light theme' }))
     await waitFor(() => expect(document.documentElement).toHaveAttribute('data-theme', 'light'))
     expect(screen.getByTestId('image-viewer')).toBeInTheDocument()
+  })
+
+  it('runs detection, selects a box, filters saved results and keeps them across modules', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset])
+    vi.mocked(analyzeImage).mockResolvedValue(savedAnalysis)
+    renderApp('/workspace/analysis')
+    fireEvent.click(await screen.findByRole('button', { name: 'Analyze Image' }))
+    await waitFor(() => expect(analyzeImage).toHaveBeenCalledOnce())
+    await waitFor(() => expect(screen.getAllByText('2', { selector: '.analysis-stats strong' })).toHaveLength(2))
+    const hit = screen.getByRole('button', { name: 'Select person 92 percent' })
+    expect(hit).toHaveStyle({ left: '25%', top: '20%', width: '30%', height: '50%' })
+    fireEvent.click(hit)
+    expect(screen.getByText(/Pixels \(x, y, w, h\)/)).toBeInTheDocument()
+    expect(screen.getByText('300, 160, 360, 400')).toBeInTheDocument()
+    fireEvent.change(screen.getByLabelText('Display confidence'), { target: { value: '0.5' } })
+    expect(screen.queryByRole('button', { name: 'Select car 48 percent' })).not.toBeInTheDocument()
+    expect(analyzeImage).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('link', { name: /objects & regions/i }))
+    expect(screen.getByRole('button', { name: 'Select person 92 percent' })).toBeInTheDocument()
+  })
+
+  it('restores a saved analysis and shows an honest empty result', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset])
+    vi.mocked(listAnalyses).mockResolvedValue([{ ...savedAnalysis, detections: [], summary: { total_objects: 0, class_counts: {} } }])
+    renderApp('/workspace/analysis')
+    expect(await screen.findByText(/No supported objects were detected/)).toBeInTheDocument()
+    expect(screen.getAllByText('0', { selector: '.analysis-stats strong' })).toHaveLength(2)
+  })
+
+  it('reports unavailable model and unsupported video analysis', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset, videoAsset])
+    vi.mocked(getModels).mockResolvedValue([{ state: 'not_installed', name: 'yolo26n.pt', device: null, detail: 'Install model weights.' }])
+    renderApp('/workspace/analysis')
+    expect(await screen.findByText(/Install model weights/)).toBeInTheDocument()
+    fireEvent.click(screen.getByRole('button', { name: /clip.mp4 video/i }))
+    expect(screen.getByText('Video analysis is planned for Phase 6.')).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Analyze Image' })).not.toBeInTheDocument()
   })
 })

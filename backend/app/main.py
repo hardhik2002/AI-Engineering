@@ -10,28 +10,35 @@ from fastapi.responses import JSONResponse
 
 from app.api.media import router as media_router
 from app.api.routes import router
+from app.api.vision import router as vision_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging
 from app.core.upload_limit import UploadBodyLimitMiddleware
+from app.providers.detector import DetectorError, ObjectDetector, YOLO26Detector
 from app.schemas.media import ApiError, ApiErrorDetail
+from app.services.analysis import AnalysisService
 from app.services.media import MediaError, MediaService
 
 logger = logging.getLogger("visionlab.http")
 
 
-def create_app(settings: Settings | None = None) -> FastAPI:
+def create_app(settings: Settings | None = None, detector: ObjectDetector | None = None) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings.log_level)
     media_service = MediaService(settings)
+    detector = detector or YOLO26Detector(settings)
+    analysis_service = AnalysisService(settings, media_service, detector)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         media_service.initialize()
         yield
 
-    app = FastAPI(title="VisionLab AI API", version="0.2.0", lifespan=lifespan)
+    app = FastAPI(title="VisionLab AI API", version="0.3.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.media_service = media_service
+    app.state.detector = detector
+    app.state.analysis_service = analysis_service
     app.add_middleware(UploadBodyLimitMiddleware, maximum_bytes=settings.max_video_bytes + 65536)
     app.add_middleware(
         CORSMiddleware,
@@ -48,6 +55,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         return JSONResponse(
             status_code=error.status_code, content=body.model_dump(), headers=error.headers
         )
+
+    @app.exception_handler(DetectorError)
+    async def detector_error_handler(_request: Request, error: DetectorError) -> JSONResponse:
+        body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
+        return JSONResponse(status_code=error.status_code, content=body.model_dump())
 
     @app.exception_handler(RequestValidationError)
     async def validation_error_handler(
@@ -89,6 +101,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
 
     app.include_router(router)
     app.include_router(media_router)
+    app.include_router(vision_router)
     return app
 
 

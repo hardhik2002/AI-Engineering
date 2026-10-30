@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react'
 import { useQuery, useQueryClient } from '@tanstack/react-query'
+import { useMutation } from '@tanstack/react-query'
 import {
   Accessibility, ArrowRight, Box, Check, CircleHelp, CloudOff,
   Image as ImageIcon, Layers3, MessageCircleQuestion, Moon,
@@ -12,12 +13,15 @@ import { MediaInspector } from '@/components/media/MediaInspector'
 import { MediaLibrary } from '@/components/media/MediaLibrary'
 import { MediaUploader } from '@/components/media/MediaUploader'
 import { MediaViewer } from '@/components/media/MediaViewer'
+import { DetectionInspector } from '@/components/vision/DetectionInspector'
 import { getCapabilities, getHealth } from '@/lib/api'
 import { deleteMedia, formatBytes, getMediaLimits, listMedia, mediaErrorMessage } from '@/lib/media'
+import { analyzeImage, getModels, listAnalyses } from '@/lib/vision'
 import { useMediaStore } from '@/store/media'
 import { useThemeStore } from '@/store/theme'
 import type { CapabilityId, CapabilityStatus } from '@/types/api'
 import type { MediaAsset } from '@/types/media'
+import type { AnalysisRecord, DetectionParameters } from '@/types/vision'
 
 interface ModuleInfo {
   id: CapabilityId
@@ -42,12 +46,12 @@ const modules: ModuleInfo[] = [
   {
     id: 'analysis', name: 'Image Analysis', shortName: 'Analysis',
     description: 'Explore image content with evidence tied to the original media.',
-    icon: ScanEye, insight: 'Grounded image and region analysis arrives in Phase 4.',
+    icon: ScanEye, insight: 'YOLO26 detects supported object classes. Broader scene analysis arrives in Phase 4.',
   },
   {
     id: 'objects', name: 'Object and Region Understanding', shortName: 'Objects & regions',
     description: 'Inspect detected objects and their normalized locations.',
-    icon: Box, insight: 'Real object detection and overlays arrive in Phase 3.',
+    icon: Box, insight: 'YOLO26 object boxes are available for images. Region descriptions arrive in Phase 4.',
   },
   {
     id: 'accessibility', name: 'Accessible Image Descriptions', shortName: 'Accessibility',
@@ -64,7 +68,7 @@ function StatusLabel({ status }: { status: CapabilityStatus | 'unknown' }) {
 
 function Workstation() {
   const { moduleId } = useParams()
-  const current = modules.find((item) => item.id === moduleId)
+  const current = modules.find((item) => item.id === moduleId) ?? modules[0]
   const theme = useThemeStore((state) => state.theme)
   const toggleTheme = useThemeStore((state) => state.toggleTheme)
   const health = useQuery({ queryKey: ['health'], queryFn: getHealth, refetchInterval: 30_000 })
@@ -74,25 +78,53 @@ function Workstation() {
   const queryClient = useQueryClient()
   const activeMediaId = useMediaStore((state) => state.activeMediaId)
   const selectMedia = useMediaStore((state) => state.selectMedia)
+  const activeAnalysisId = useMediaStore((state) => state.activeAnalysisId)
+  const selectAnalysis = useMediaStore((state) => state.selectAnalysis)
   const [deleting, setDeleting] = useState(false)
   const [deleteError, setDeleteError] = useState('')
   const [uploadNotice, setUploadNotice] = useState('')
+  const [selectedObjectId, setSelectedObjectId] = useState<string | null>(null)
+  const [displayConfidence, setDisplayConfidence] = useState(0)
+  const [excludedClasses, setExcludedClasses] = useState<string[]>([])
+  const [showBoxes, setShowBoxes] = useState(true)
+  const [showLabels, setShowLabels] = useState(true)
+  const [showConfidence, setShowConfidence] = useState(true)
+  const [inferenceParameters, setInferenceParameters] = useState<DetectionParameters>({ confidence: 0.25, iou: 0.45, image_size: 640, max_detections: 100 })
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
   }, [theme])
-
-  if (!current) return <Navigate to="/workspace/captioning" replace />
 
   const currentCapability = capabilities.data?.find((item) => item.id === current.id)
   const apiState = health.isPending ? 'checking' : health.isError ? 'disconnected' : 'connected'
   const CurrentIcon = current.icon
   const assets = media.data ?? []
   const activeAsset = assets.find((asset) => asset.media_id === activeMediaId) ?? assets[0] ?? null
+  const detectionModule = current.id === 'analysis' || current.id === 'objects'
+  const imageForAnalysis = detectionModule && activeAsset?.media_type === 'image' ? activeAsset : null
+  const modelQuery = useQuery({ queryKey: ['vision-models'], queryFn: getModels, enabled: health.isSuccess && detectionModule, refetchInterval: 15000 })
+  const analysesQuery = useQuery({ queryKey: ['analyses', imageForAnalysis?.media_id], queryFn: () => listAnalyses(imageForAnalysis!.media_id), enabled: !!imageForAnalysis && health.isSuccess })
+  const runAnalysis = useMutation({ mutationFn: () => analyzeImage(imageForAnalysis!.media_id, inferenceParameters), onSuccess: (record) => {
+    selectAnalysis(record.analysis_id)
+    setSelectedObjectId(null)
+    queryClient.setQueryData<AnalysisRecord[]>(['analyses', record.media_id], (current) => [record, ...(current ?? [])])
+    void queryClient.invalidateQueries({ queryKey: ['vision-models'] })
+    void queryClient.invalidateQueries({ queryKey: ['capabilities'] })
+  } })
+  const analyses = analysesQuery.data ?? []
+  const analysis = analyses.find((item) => item.analysis_id === activeAnalysisId) ?? analyses[0] ?? null
+  const visibleObjects = (analysis?.detections ?? []).filter((item) => item.confidence >= displayConfidence && !excludedClasses.includes(item.label))
+  const overlays = detectionModule && showBoxes ? visibleObjects.map((item) => ({ id: item.id, classId: item.class_id,
+    label: item.label, confidence: item.confidence, box: { x1: item.bounding_box.x, y1: item.bounding_box.y,
+      x2: item.bounding_box.x + item.bounding_box.width, y2: item.bounding_box.y + item.bounding_box.height } })) : []
+
+  function resetDisplay() { setDisplayConfidence(0); setExcludedClasses([]); setShowBoxes(true); setShowLabels(true); setShowConfidence(true) }
 
   function onUploaded(asset: MediaAsset) {
     setUploadNotice(`${asset.original_filename} uploaded and ready.`)
     selectMedia(asset.media_id)
+    setSelectedObjectId(null)
+    resetDisplay()
     queryClient.setQueryData<MediaAsset[]>(['media'], (current) =>
       [asset, ...(current ?? []).filter((item) => item.media_id !== asset.media_id)])
     void queryClient.invalidateQueries({ queryKey: ['media'] })
@@ -105,6 +137,7 @@ function Workstation() {
     try {
       await deleteMedia(mediaId)
       selectMedia(assets.find((asset) => asset.media_id !== mediaId)?.media_id ?? null)
+      queryClient.removeQueries({ queryKey: ['analyses', mediaId] })
       queryClient.setQueryData<MediaAsset[]>(['media'], (current) =>
         (current ?? []).filter((item) => item.media_id !== mediaId))
       await queryClient.invalidateQueries({ queryKey: ['media'] })
@@ -149,7 +182,7 @@ function Workstation() {
           })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-info"><Layers3 size={16} /><span>Learning workspace</span><span className="phase-pill">PHASE 02</span></div>
+          <div className="sidebar-info"><Layers3 size={16} /><span>Learning workspace</span><span className="phase-pill">PHASE 03</span></div>
           <div className="sidebar-note">Explore five image-understanding capabilities as each real provider is integrated.</div>
         </div>
       </aside>
@@ -162,7 +195,7 @@ function Workstation() {
             <p>{current.description}</p>
           </div>
           <div className="heading-actions">
-            <span className="phase-badge"><span />Phase 2 media workspace</span>
+            <span className="phase-badge"><span />Phase 3 object detection</span>
           </div>
         </div>
 
@@ -176,7 +209,7 @@ function Workstation() {
           </div>
           {uploadNotice && <div className="upload-success-banner" role="status"><Check size={15} /><span>{uploadNotice}</span><button type="button" onClick={() => setUploadNotice('')} aria-label="Dismiss upload message">×</button></div>}
           <div className={`viewer-stage ${activeAsset ? 'has-media' : ''}`}>
-            {activeAsset ? <MediaViewer asset={activeAsset} /> : health.isPending || media.isPending && health.isSuccess ?
+            {activeAsset ? <MediaViewer asset={activeAsset} detections={overlays} selectedId={selectedObjectId} onSelect={setSelectedObjectId} showLabels={showLabels} showConfidence={showConfidence} /> : health.isPending || media.isPending && health.isSuccess ?
               <div className="viewer-state">Loading media workspace…</div> : health.isError ?
                 <div className="viewer-state">Backend disconnected. Start the API to upload media.</div> : <>
             <div className="stage-grid" aria-hidden="true" />
@@ -190,12 +223,21 @@ function Workstation() {
           <div className="viewer-footer"><span><span className="footer-dot" />{activeAsset ? activeAsset.original_filename : 'Awaiting media'}</span><span>{activeAsset ? `${activeAsset.width} × ${activeAsset.height} · ${formatBytes(activeAsset.file_size_bytes)}` : 'Overlays appear when providers are enabled'}</span></div>
         </section>
 
-        <MediaLibrary assets={assets} activeId={activeAsset?.media_id ?? null} onSelect={selectMedia} loading={health.isPending || (media.isPending && health.isSuccess)} error={media.isError || health.isError} onRetry={() => { void health.refetch(); void media.refetch() }} />
+        {detectionModule && <section className="analysis-run-panel" aria-label="Image detection controls">
+          <div><strong>YOLO26 Nano · Image detection</strong><span>{activeAsset?.media_type === 'video' ? 'Video analysis is planned for Phase 6.' : imageForAnalysis ? `Model ${modelQuery.data?.[0]?.state.replace('_', ' ') ?? 'checking'} · ${analyses.length} saved run${analyses.length === 1 ? '' : 's'}` : 'Select or upload an image to begin.'}</span></div>
+          {imageForAnalysis && <>
+            <div className="inference-fields"><label>Inference confidence <input aria-label="Inference confidence" type="number" min="0.01" max="1" step="0.01" value={inferenceParameters.confidence} onChange={(event) => setInferenceParameters({ ...inferenceParameters, confidence: Number(event.target.value) })} /></label><label>IoU <input aria-label="Inference IoU" type="number" min="0" max="1" step="0.01" value={inferenceParameters.iou} onChange={(event) => setInferenceParameters({ ...inferenceParameters, iou: Number(event.target.value) })} /></label></div>
+            <Button type="button" onClick={() => runAnalysis.mutate()} disabled={runAnalysis.isPending || inferenceParameters.confidence <= 0 || inferenceParameters.confidence > 1 || inferenceParameters.iou < 0 || inferenceParameters.iou > 1}>{runAnalysis.isPending ? 'Analyzing…' : analysis ? 'Re-run Analysis' : 'Analyze Image'}</Button>
+            {analyses.length > 1 && <label className="analysis-run-select">Saved run <select aria-label="Saved analysis" value={analysis?.analysis_id} onChange={(event) => { selectAnalysis(event.target.value); setSelectedObjectId(null) }}>{analyses.map((item) => <option key={item.analysis_id} value={item.analysis_id}>{new Date(item.created_at).toLocaleString()} · {item.status}</option>)}</select></label>}
+          </>}
+        </section>}
 
-        <section className="foundation-strip" aria-label="Phase two progress">
+        <MediaLibrary assets={assets} activeId={activeAsset?.media_id ?? null} onSelect={(id) => { selectMedia(id); setSelectedObjectId(null); resetDisplay() }} loading={health.isPending || (media.isPending && health.isSuccess)} error={media.isError || health.isError} onRetry={() => { void health.refetch(); void media.refetch() }} />
+
+        <section className="foundation-strip" aria-label="Phase three progress">
           <div className="foundation-icon"><Check size={18} /></div>
-          <div><strong>Media workspace active</strong><span>Upload, inspect and reopen real media across all five modules.</span></div>
-          <span className="foundation-index">02 / 08</span>
+          <div><strong>Image detection workspace active</strong><span>Analyze uploaded images with a local model and reopen saved results.</span></div>
+          <span className="foundation-index">03 / 08</span>
         </section>
       </main>
 
@@ -203,9 +245,9 @@ function Workstation() {
         <div className="inspector-header"><div><span className="inspector-overline">INTELLIGENCE PANEL</span><h2>AI Inspector</h2></div><Sparkles size={19} /></div>
         <div className="inspector-tabs"><span className="inspector-tab active">Overview</span></div>
         <div className="inspector-content">
-          <div className="inspector-empty"><div className="inspector-empty-icon"><WandSparkles size={22} /></div><strong>No AI analysis yet</strong><p>Inference is planned for later phases. Model results will be linked to this media when available.</p></div>
+          {detectionModule ? <DetectionInspector analysis={analysis} model={modelQuery.data?.[0] ?? null} loading={runAnalysis.isPending || analysesQuery.isPending && !!imageForAnalysis} error={runAnalysis.isError ? mediaErrorMessage(runAnalysis.error) : analysesQuery.isError ? mediaErrorMessage(analysesQuery.error) : ''} visible={visibleObjects} selectedId={selectedObjectId} onSelect={setSelectedObjectId} displayConfidence={displayConfidence} onDisplayConfidence={setDisplayConfidence} selectedClasses={excludedClasses} onSelectedClasses={setExcludedClasses} showBoxes={showBoxes} onShowBoxes={setShowBoxes} showLabels={showLabels} onShowLabels={setShowLabels} showConfidence={showConfidence} onShowConfidence={setShowConfidence} onReset={resetDisplay} /> : <div className="inspector-empty"><div className="inspector-empty-icon"><WandSparkles size={22} /></div><strong>No AI analysis yet</strong><p>This capability is planned for a later phase.</p></div>}
           <MediaInspector asset={activeAsset} onDelete={(id) => void onDelete(id)} deleting={deleting} error={deleteError} />
-          <div className="inspector-section"><div className="section-label">SELECTED MODULE</div><div className="capability-card"><div className="capability-card-top"><span className="capability-icon"><CurrentIcon size={18} /></span><StatusLabel status={currentCapability?.status ?? 'unknown'} /></div><strong>{current.name}</strong><p>{current.insight}</p><div className="capability-card-foot"><span>Planned integration</span><span>Phase {currentCapability?.phase ?? '—'}</span></div></div></div>
+          <div className="inspector-section"><div className="section-label">SELECTED MODULE</div><div className="capability-card"><div className="capability-card-top"><span className="capability-icon"><CurrentIcon size={18} /></span><StatusLabel status={currentCapability?.status ?? 'unknown'} /></div><strong>{current.name}</strong><p>{current.insight}</p><div className="capability-card-foot"><span>Integration</span><span>Phase {currentCapability?.phase ?? '—'}</span></div></div></div>
           <div className="inspector-section"><div className="section-label">SYSTEM STATUS</div>
             {health.isSuccess && health.data ? <div className="system-row"><span className="system-icon online"><Check size={16} /></span><div><strong>Backend online</strong><span>Version {health.data.version} · {health.data.environment}</span></div></div> :
               apiState === 'checking' ? <div className="system-row"><span className="system-icon checking"><CircleHelp size={16} /></span><div><strong>Connecting to backend</strong><span>Checking local API health…</span></div></div> :

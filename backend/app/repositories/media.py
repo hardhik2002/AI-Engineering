@@ -36,11 +36,26 @@ class MediaRepository:
             connection.execute(
                 "CREATE INDEX IF NOT EXISTS idx_media_created ON media(created_at DESC)"
             )
+            connection.execute("""CREATE TABLE IF NOT EXISTS analyses (
+                analysis_id TEXT PRIMARY KEY,
+                media_id TEXT NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
+                task TEXT NOT NULL,
+                status TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                completed_at TEXT,
+                result_json TEXT,
+                error_code TEXT
+            )""")
+            connection.execute(
+                """CREATE INDEX IF NOT EXISTS idx_analyses_media
+                ON analyses(media_id, created_at DESC)"""
+            )
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:
         connection = sqlite3.connect(self.database_path, timeout=30)
         connection.row_factory = sqlite3.Row
+        connection.execute("PRAGMA foreign_keys=ON")
         try:
             with connection:
                 yield connection

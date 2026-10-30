@@ -23,7 +23,7 @@ def test_health_and_request_id(client: TestClient) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "visionlab-api",
-        "version": "0.2.0",
+        "version": "0.3.0",
         "environment": "test",
     }
     assert response.headers["X-Request-ID"]
@@ -39,7 +39,8 @@ def test_capabilities_report_only_media_as_available(client: TestClient) -> None
         "image_preview",
         "video_preview",
     }
-    assert len([item for item in capabilities if item["status"] == "planned"]) == 5
+    assert len([item for item in capabilities if item["status"] == "planned"]) == 3
+    assert len([item for item in capabilities if item["status"] == "unavailable"]) == 2
 
 
 def test_cors_allows_local_frontend(client: TestClient) -> None:

@@ -27,6 +27,8 @@ export interface MediaLimits {
 }
 export interface NormalizedBoundingBox { x1: number; y1: number; x2: number; y2: number }
 export interface DetectionOverlay {
+  id?: string
+  classId?: number
   box: NormalizedBoundingBox
   label: string
   confidence: number

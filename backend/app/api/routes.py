@@ -9,17 +9,21 @@ router = APIRouter(prefix="/api/v1")
 def health(request: Request) -> HealthResponse:
     settings = request.app.state.settings
     return HealthResponse(
-        status="ok", service="visionlab-api", version="0.2.0", environment=settings.environment
+        status="ok", service="visionlab-api", version="0.3.0", environment=settings.environment
     )
 
 
 @router.get("/capabilities", response_model=list[Capability], tags=["system"])
-def capabilities() -> list[Capability]:
+def capabilities(request: Request) -> list[Capability]:
+    detection_ready = request.app.state.detector.get_status().state == "ready"
+    detection_status = "available" if detection_ready else "unavailable"
     return [
         Capability(id="captioning", name="Image Captioning", status="planned", phase=4),
         Capability(id="vqa", name="Visual Question Answering", status="planned", phase=5),
-        Capability(id="analysis", name="Image Analysis", status="planned", phase=4),
-        Capability(id="objects", name="Object and Region Understanding", status="planned", phase=3),
+        Capability(id="analysis", name="Image Analysis", status=detection_status, phase=3),
+        Capability(
+            id="objects", name="Object and Region Understanding", status=detection_status, phase=3
+        ),
         Capability(
             id="accessibility", name="Accessible Image Descriptions", status="planned", phase=5
         ),
