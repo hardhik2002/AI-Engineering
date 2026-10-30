@@ -55,6 +55,34 @@ class MediaRepository:
                 """CREATE INDEX IF NOT EXISTS idx_analyses_media
                 ON analyses(media_id, created_at DESC)"""
             )
+            connection.execute("""CREATE TABLE IF NOT EXISTS vqa_conversations (
+                conversation_id TEXT PRIMARY KEY,
+                media_id TEXT NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE INDEX IF NOT EXISTS idx_vqa_media
+                ON vqa_conversations(media_id, updated_at DESC)""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS vqa_messages (
+                message_id TEXT PRIMARY KEY,
+                conversation_id TEXT NOT NULL REFERENCES vqa_conversations(conversation_id)
+                    ON DELETE CASCADE,
+                role TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE INDEX IF NOT EXISTS idx_vqa_messages
+                ON vqa_messages(conversation_id, created_at)""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS accessibility_results (
+                result_id TEXT PRIMARY KEY,
+                media_id TEXT NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
+                record_json TEXT NOT NULL,
+                version INTEGER NOT NULL,
+                created_at TEXT NOT NULL,
+                updated_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE INDEX IF NOT EXISTS idx_accessibility_media
+                ON accessibility_results(media_id, created_at DESC)""")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

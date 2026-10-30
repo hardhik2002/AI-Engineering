@@ -1,6 +1,6 @@
-# VisionLab AI architecture — Phase 4
+# VisionLab AI architecture — Phase 5
 
-The app remains a modular monolith. FastAPI serves uploaded media and vision results; React consumes the same typed JSON contract. SQLite stores metadata and every completed or failed analysis run. There is no authentication, external queue, or cloud inference in this phase.
+The app remains a modular monolith. FastAPI serves uploaded media and vision results; React consumes the same typed JSON contract. SQLite stores media, analyses, conversations, and accessibility revisions. There is no authentication or external queue in this local development phase.
 
 ```mermaid
 flowchart LR
@@ -8,12 +8,15 @@ flowchart LR
   API --> Media[MediaService]
   API --> Analysis[AnalysisService]
   API --> Caption[CaptionService]
+  API --> Multi[MultimodalService]
   Analysis -->|bounded semaphore| Detector[YOLO26Detector]
   Caption -->|bounded semaphore| Florence[Florence2CaptionProvider]
+  Multi -->|bounded semaphore, consent| OpenAI[Optional OpenAI Responses]
   Detector --> Weights[(ignored model cache)]
   Florence --> Weights
   Analysis --> DB[(SQLite media and analyses)]
   Caption --> DB
+  Multi --> DB
   Media --> Files[(ignored original media)]
   Browser -->|saved results| API
 ```
@@ -24,7 +27,13 @@ YOLO26 initializes lazily behind a lock and stays cached in one API process. An 
 
 Startup creates the `analyses` table and index with `IF NOT EXISTS`, preserving the Phase 2 `media` table. Each analysis gets a new UUID. Success stores the full typed result; a failure stores status and error code. Foreign keys cascade analysis rows when media is deleted. List and get endpoints validate the media ID before querying, and only the newest 100 runs are listed. A model status read never loads weights or downloads anything. The explicit install command is the only automatic model downloader.
 
-The UI has one shared active media ID and analysis ID. Image Analysis and Objects & regions reuse saved detections. Display filters are local React state and do not cause inference. Inference parameters require a new run. VQA and accessible descriptions remain planned. Video upload and playback remain available, but AI analysis rejects video explicitly.
+The UI has one shared active media ID and analysis ID. Image Analysis and Objects & regions reuse saved detections. Display filters are local React state and do not cause inference. Inference parameters require a new run. Video upload and playback remain available, but Phase 5 cloud tasks reject video explicitly.
+
+## Multimodal image workflows (Phase 5)
+
+`MultimodalService` validates each media UUID and image type through `MediaService.paths`. It decodes an EXIF-oriented image off the event loop, checks stored dimensions, resizes, encodes a metadata-free JPEG data URL, and sends it only after an explicit consent flag. `OpenAIVisionProvider` lazily creates `AsyncOpenAI`, uses Responses structured parsing with `store=False`, and marks itself available only after successful parsing. A bounded semaphore caps concurrent requests. A provider interface allows replacement without changing routes or SQLite contracts. Errors disclose codes and safe messages, never provider payloads or credentials.
+
+New SQLite tables store conversations/messages and accessibility records with foreign keys to media and cascading deletion. A VQA turn commits the user question and successful provider answer together. A failed provider call persists neither. Accessibility records keep generated and edited values separately; edits use optimistic version checks. Decorative `alt=""` is produced locally. A saved Florence caption can be copied into a clearly identified editable suggestion, with no cloud transfer. All SQLite operations in async routes run in a worker thread. The browser stores consent per media ID and never calls cloud inference automatically. No video frame is sent to OpenAI in this phase.
 
 ## Florence captioning (Phase 4)
 

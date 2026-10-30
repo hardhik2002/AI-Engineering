@@ -15,6 +15,8 @@ import { MediaUploader } from '@/components/media/MediaUploader'
 import { MediaViewer } from '@/components/media/MediaViewer'
 import { DetectionInspector } from '@/components/vision/DetectionInspector'
 import { CaptionInspector } from '@/components/vision/CaptionInspector'
+import { VQAInspector } from '@/components/vision/VQAInspector'
+import { AccessibilityInspector } from '@/components/vision/AccessibilityInspector'
 import { getCapabilities, getHealth } from '@/lib/api'
 import { deleteMedia, formatBytes, getMediaLimits, listMedia, mediaErrorMessage } from '@/lib/media'
 import { analyzeImage, getModels, listAnalyses } from '@/lib/vision'
@@ -43,8 +45,8 @@ const modules: ModuleInfo[] = [
   },
   {
     id: 'vqa', name: 'Visual Question Answering', shortName: 'Visual Q&A',
-    description: 'Ask questions about an image or selected video frame.',
-    icon: MessageCircleQuestion, insight: 'Optional OpenAI vision Q&A arrives in Phase 5.',
+    description: 'Ask grounded questions about an uploaded image.',
+    icon: MessageCircleQuestion, insight: 'Optional OpenAI vision Q&A requires a backend key and image consent.',
   },
   {
     id: 'analysis', name: 'Image Analysis', shortName: 'Analysis',
@@ -59,7 +61,7 @@ const modules: ModuleInfo[] = [
   {
     id: 'accessibility', name: 'Accessible Image Descriptions', shortName: 'Accessibility',
     description: 'Create useful descriptions for people using assistive technology.',
-    icon: Accessibility, insight: 'Accessible descriptions arrive in Phase 5.',
+    icon: Accessibility, insight: 'Create, review and save alt text; decorative and Florence suggestions work locally.',
   },
 ]
 
@@ -173,6 +175,9 @@ function Workstation() {
       runCaption.reset(); runDense.reset(); runDescribe.reset()
       queryClient.removeQueries({ queryKey: ['analyses', mediaId] })
       queryClient.removeQueries({ queryKey: ['captions', mediaId] })
+      queryClient.removeQueries({ queryKey: ['vqa-conversations', mediaId] })
+      queryClient.removeQueries({ queryKey: ['accessibility', mediaId] })
+      localStorage.removeItem(`visionlab:openai-consent:${mediaId}`)
       queryClient.setQueryData<MediaAsset[]>(['media'], (current) =>
         (current ?? []).filter((item) => item.media_id !== mediaId))
       await queryClient.invalidateQueries({ queryKey: ['media'] })
@@ -217,7 +222,7 @@ function Workstation() {
           })}
         </nav>
         <div className="sidebar-bottom">
-          <div className="sidebar-info"><Layers3 size={16} /><span>Learning workspace</span><span className="phase-pill">PHASE 04</span></div>
+          <div className="sidebar-info"><Layers3 size={16} /><span>Learning workspace</span><span className="phase-pill">PHASE 05</span></div>
           <div className="sidebar-note">Explore five image-understanding capabilities as each real provider is integrated.</div>
         </div>
       </aside>
@@ -230,7 +235,7 @@ function Workstation() {
             <p>{current.description}</p>
           </div>
           <div className="heading-actions">
-            <span className="phase-badge"><span />Phase 4 image understanding</span>
+            <span className="phase-badge"><span />Phase 5 image understanding</span>
           </div>
         </div>
 
@@ -270,10 +275,10 @@ function Workstation() {
 
         <MediaLibrary assets={assets} activeId={activeAsset?.media_id ?? null} onSelect={(id) => { selectMedia(id); runAnalysis.reset(); runCaption.reset(); runDense.reset(); runDescribe.reset(); setSelectedObjectId(null); setSelectedCaptionId(null); setSelectedRegionId(null); resetDisplay() }} loading={health.isPending || (media.isPending && health.isSuccess)} error={media.isError || health.isError} onRetry={() => { void health.refetch(); void media.refetch() }} />
 
-        <section className="foundation-strip" aria-label="Phase four progress">
+        <section className="foundation-strip" aria-label="Phase five progress">
           <div className="foundation-icon"><Check size={18} /></div>
           <div><strong>Image understanding workspace active</strong><span>Analyze uploaded images with local models and reopen saved results.</span></div>
-          <span className="foundation-index">04 / 08</span>
+          <span className="foundation-index">05 / 08</span>
         </section>
       </main>
 
@@ -281,7 +286,7 @@ function Workstation() {
         <div className="inspector-header"><div><span className="inspector-overline">INTELLIGENCE PANEL</span><h2>AI Inspector</h2></div><Sparkles size={19} /></div>
         <div className="inspector-tabs"><span className="inspector-tab active">Overview</span></div>
         <div className="inspector-content">
-          {detectionModule ? <DetectionInspector analysis={analysis} model={modelQuery.data?.[0] ?? null} loading={runAnalysis.isPending || analysesQuery.isPending && !!imageForAnalysis} error={runAnalysis.isError ? mediaErrorMessage(runAnalysis.error) : analysesQuery.isError ? mediaErrorMessage(analysesQuery.error) : ''} visible={visibleObjects} selectedId={selectedObjectId} onSelect={setSelectedObjectId} displayConfidence={displayConfidence} onDisplayConfidence={setDisplayConfidence} selectedClasses={excludedClasses} onSelectedClasses={setExcludedClasses} showBoxes={showBoxes} onShowBoxes={setShowBoxes} showLabels={showLabels} onShowLabels={setShowLabels} showConfidence={showConfidence} onShowConfidence={setShowConfidence} onReset={resetDisplay} onDescribe={current.id === 'objects' && selectedObjectId && analysis ? () => runDescribe.mutate() : undefined} describeLoading={runDescribe.isPending} describeError={runDescribe.isError ? mediaErrorMessage(runDescribe.error) : ''} description={savedDescription?.text ? { text: savedDescription.text, model: savedDescription.model.checkpoint, duration: savedDescription.inference_ms } : null} /> : current.id === 'captioning' ? <CaptionInspector imageReady={!!imageForCaption} model={captionModel.data ?? null} records={selectableCaptions} selected={selectedCaption} selectedRegionId={selectedRegionId} showRegions={showRegions} onShowRegions={setShowRegions} onSelectRecord={(id) => { setSelectedCaptionId(id); setSelectedRegionId(null) }} onSelectRegion={setSelectedRegionId} onGenerate={(mode) => runCaption.mutate(mode)} onDense={() => runDense.mutate()} loading={runCaption.isPending || runDense.isPending} historyLoading={captionsQuery.isPending && !!imageForCaption} error={runCaption.isError ? mediaErrorMessage(runCaption.error) : runDense.isError ? mediaErrorMessage(runDense.error) : captionsQuery.isError ? mediaErrorMessage(captionsQuery.error) : ''} /> : <div className="inspector-empty"><div className="inspector-empty-icon"><WandSparkles size={22} /></div><strong>No AI analysis yet</strong><p>This capability is planned for a later phase.</p></div>}
+          {detectionModule ? <DetectionInspector analysis={analysis} model={modelQuery.data?.[0] ?? null} loading={runAnalysis.isPending || analysesQuery.isPending && !!imageForAnalysis} error={runAnalysis.isError ? mediaErrorMessage(runAnalysis.error) : analysesQuery.isError ? mediaErrorMessage(analysesQuery.error) : ''} visible={visibleObjects} selectedId={selectedObjectId} onSelect={setSelectedObjectId} displayConfidence={displayConfidence} onDisplayConfidence={setDisplayConfidence} selectedClasses={excludedClasses} onSelectedClasses={setExcludedClasses} showBoxes={showBoxes} onShowBoxes={setShowBoxes} showLabels={showLabels} onShowLabels={setShowLabels} showConfidence={showConfidence} onShowConfidence={setShowConfidence} onReset={resetDisplay} onDescribe={current.id === 'objects' && selectedObjectId && analysis ? () => runDescribe.mutate() : undefined} describeLoading={runDescribe.isPending} describeError={runDescribe.isError ? mediaErrorMessage(runDescribe.error) : ''} description={savedDescription?.text ? { text: savedDescription.text, model: savedDescription.model.checkpoint, duration: savedDescription.inference_ms } : null} /> : current.id === 'captioning' ? <CaptionInspector imageReady={!!imageForCaption} model={captionModel.data ?? null} records={selectableCaptions} selected={selectedCaption} selectedRegionId={selectedRegionId} showRegions={showRegions} onShowRegions={setShowRegions} onSelectRecord={(id) => { setSelectedCaptionId(id); setSelectedRegionId(null) }} onSelectRegion={setSelectedRegionId} onGenerate={(mode) => runCaption.mutate(mode)} onDense={() => runDense.mutate()} loading={runCaption.isPending || runDense.isPending} historyLoading={captionsQuery.isPending && !!imageForCaption} error={runCaption.isError ? mediaErrorMessage(runCaption.error) : runDense.isError ? mediaErrorMessage(runDense.error) : captionsQuery.isError ? mediaErrorMessage(captionsQuery.error) : ''} /> : current.id === 'vqa' ? <VQAInspector mediaId={activeAsset?.media_id ?? null} isVideo={activeAsset?.media_type === 'video'} /> : current.id === 'accessibility' ? <AccessibilityInspector mediaId={activeAsset?.media_id ?? null} isVideo={activeAsset?.media_type === 'video'} /> : <div className="inspector-empty"><div className="inspector-empty-icon"><WandSparkles size={22} /></div><strong>No AI analysis yet</strong><p>This capability is planned for a later phase.</p></div>}
           <MediaInspector asset={activeAsset} onDelete={(id) => void onDelete(id)} deleting={deleting} error={deleteError} />
           <div className="inspector-section"><div className="section-label">SELECTED MODULE</div><div className="capability-card"><div className="capability-card-top"><span className="capability-icon"><CurrentIcon size={18} /></span><StatusLabel status={currentCapability?.status ?? 'unknown'} /></div><strong>{current.name}</strong><p>{current.insight}</p><div className="capability-card-foot"><span>Integration</span><span>Phase {currentCapability?.phase ?? '—'}</span></div></div></div>
           <div className="inspector-section"><div className="section-label">SYSTEM STATUS</div>

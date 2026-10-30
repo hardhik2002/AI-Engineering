@@ -21,6 +21,7 @@ def caption_model(request: Request) -> dict[str, str | None]:
 def vision_capabilities(request: Request) -> dict[str, CapabilityStatus]:
     ready = request.app.state.detector.get_status().state == "ready"
     completed = request.app.state.caption_provider.successful_tasks
+    vision_ready = request.app.state.multimodal_provider.status()["state"] == "available"
     return {
         "object_detection_image": "available" if ready else "unavailable",
         "image_object_counting": "available" if ready else "unavailable",
@@ -32,12 +33,12 @@ def vision_capabilities(request: Request) -> dict[str, CapabilityStatus]:
         "selected_region_description": "available"
         if "selected_object" in completed
         else "unavailable",
+        "visual_question_answering": "available" if vision_ready else "unavailable",
+        "accessible_description_generation": "available",
         **{
             name: "planned"
             for name in (
-                "visual_question_answering",
                 "natural_language_scene_analysis",
-                "accessible_description_generation",
                 "video_object_detection",
                 "video_tracking",
                 "live_webcam_inference",

@@ -79,6 +79,12 @@ _FIELDS = (
     "crop_width",
     "crop_height",
     "revision",
+    "conversation_id",
+    "provider",
+    "input_tokens",
+    "output_tokens",
+    "total_tokens",
+    "purpose",
 )
 _SENSITIVE = re.compile(
     r"password|secret|token|authorization|cookie|api[_-]?key|credential|path|filename", re.I

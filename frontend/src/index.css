@@ -291,3 +291,22 @@ h1, h2, p { margin: 0; }
 .caption-text small { display: block; margin-top: 9px; color: var(--muted); }
 .caption-inspector .object-list button { height: auto; min-height: 34px; text-align: left; white-space: normal; }
 .region-hit { z-index: 3; }
+.multimodal-inspector { display: grid; gap: 11px; min-width: 0; }
+.multimodal-inspector .analysis-hint { margin: 0; }
+.external-consent { display: flex; align-items: flex-start; gap: 8px; padding: 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); font-size: 11px; line-height: 1.45; }
+.external-consent input { flex: none; margin-top: 2px; accent-color: var(--accent); }
+.multimodal-field { display: grid; gap: 5px; color: var(--muted); font-size: 11px; }
+.multimodal-field input, .multimodal-field select, .multimodal-field textarea { min-width: 0; width: 100%; padding: 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-2); color: var(--text); font: inherit; }
+.multimodal-field textarea { min-height: 75px; resize: vertical; line-height: 1.4; }
+.multimodal-actions { display: flex; flex-wrap: wrap; gap: 7px; }
+.multimodal-actions button, .multimodal-inspector form > button { min-height: 32px; padding: 7px 10px; border: 1px solid var(--line); border-radius: 7px; background: var(--accent-bg); color: var(--accent); font-size: 11px; font-weight: 700; }
+.multimodal-actions button:disabled, .multimodal-inspector form > button:disabled { opacity: .5; }
+.multimodal-inspector form { display: grid; gap: 7px; }
+.vqa-messages { display: grid; gap: 8px; max-height: 360px; overflow-y: auto; }
+.vqa-message { padding: 10px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface-2); overflow-wrap: anywhere; }
+.vqa-user { margin-left: 14px; }
+.vqa-assistant { margin-right: 14px; border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); }
+.vqa-message strong { font-size: 10px; color: var(--accent); }
+.vqa-message p { margin: 5px 0; font-size: 11px; line-height: 1.55; white-space: pre-wrap; }
+.vqa-message small { color: var(--muted); font-size: 9px; line-height: 1.5; }
+.description-editor { display: grid; gap: 10px; padding-top: 10px; border-top: 1px solid var(--line); }

@@ -2,7 +2,7 @@ from functools import lru_cache
 from pathlib import Path
 from typing import Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -50,6 +50,24 @@ class Settings(BaseSettings):
     florence_num_beams: int = Field(default=1, ge=1, le=4)
     florence_max_regions: int = Field(default=30, ge=1, le=100)
     florence_max_source_side: int = Field(default=2048, ge=640, le=4096)
+    openai_api_key: SecretStr | None = Field(default=None, validation_alias="OPENAI_API_KEY")
+    openai_vision_model: str = Field(
+        default="gpt-5.4-mini",
+        validation_alias=AliasChoices("OPENAI_VISION_MODEL", "VISIONLAB_OPENAI_VISION_MODEL"),
+    )
+    openai_vision_detail: Literal["auto", "low", "high"] = Field(
+        default="auto", validation_alias="OPENAI_VISION_DETAIL"
+    )
+    openai_timeout_seconds: int = Field(
+        default=90, ge=10, le=180, validation_alias="OPENAI_TIMEOUT_SECONDS"
+    )
+    openai_max_output_tokens: int = Field(
+        default=600, ge=100, le=2000, validation_alias="OPENAI_MAX_OUTPUT_TOKENS"
+    )
+    openai_max_concurrency: int = Field(
+        default=2, ge=1, le=4, validation_alias="OPENAI_MAX_CONCURRENCY"
+    )
+    openai_max_image_side: int = Field(default=1600, ge=512, le=4096)
 
     @property
     def allowed_origins(self) -> list[str]:

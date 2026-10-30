@@ -1,5 +1,11 @@
 # Local model setup
 
+## Optional OpenAI vision (Phase 5)
+
+Install the `openai` extra with `python -m pip install -e '.[openai]'`, set `OPENAI_API_KEY` only in `backend/.env`, and restart. The default `OPENAI_VISION_MODEL=gpt-5.4-mini` uses the [Responses API](https://developers.openai.com/api/docs/guides/images-vision) with [Pydantic structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs). This model supports image input and structured outputs according to its [official model page](https://developers.openai.com/api/docs/models/gpt-5.4-mini). No key is required for local models or decorative alt text.
+
+`OPENAI_VISION_DETAIL` is `auto`, `low`, or `high`; `OPENAI_TIMEOUT_SECONDS` defaults to 90; `OPENAI_MAX_OUTPUT_TOKENS` to 600; `OPENAI_MAX_CONCURRENCY` to 2; and `VISIONLAB_OPENAI_MAX_IMAGE_SIDE` to 1600. A request resizes the validated image, strips metadata, and sends a JPEG data URL. Responses use `store=False`, retry transient failures at most twice, and record only actual usage returned by the API. Model output may be wrong; grounding status is the model's assessment, not independent visual verification. Live verification requires an explicitly configured key and opt-in.
+
 ## Florence-2 (Phase 4)
 
 Install with `python -m pip install -e '.[dev,vision,caption]'`, then run `python -m app.scripts.install_florence` from `backend/`. The installer downloads [florence-community/Florence-2-base-ft](https://huggingface.co/florence-community/Florence-2-base-ft) at pinned revision `0b03b6f15a4a211370fb204aee4e7dd48887ea37` into ignored `data/models/florence2/` and writes a revision manifest. Runtime loading uses native `Florence2ForConditionalGeneration` and `AutoProcessor` with `trust_remote_code=False` and local files only. Verified here with PyTorch `2.15.0+cpu`, Transformers `4.57.6`, Ultralytics `8.4.193`, and safetensors `0.8.0`. The weight file is about 463 MB. CPU uses float32; CUDA, when configured and available, uses float16.

@@ -23,13 +23,13 @@ def test_health_and_request_id(client: TestClient) -> None:
     assert response.json() == {
         "status": "ok",
         "service": "visionlab-api",
-        "version": "0.4.0",
+        "version": "0.5.0",
         "environment": "test",
     }
     assert response.headers["X-Request-ID"]
 
 
-def test_capabilities_report_only_media_as_available(client: TestClient) -> None:
+def test_capabilities_report_local_accessibility_as_available(client: TestClient) -> None:
     response = client.get("/api/v1/capabilities")
     assert response.status_code == 200
     capabilities = response.json()
@@ -38,12 +38,13 @@ def test_capabilities_report_only_media_as_available(client: TestClient) -> None
         "media_upload",
         "image_preview",
         "video_preview",
+        "accessibility",
     }
-    assert len([item for item in capabilities if item["status"] == "planned"]) == 2
+    assert len([item for item in capabilities if item["status"] == "planned"]) == 0
     assert (
         next(item for item in capabilities if item["id"] == "captioning")["status"] == "unavailable"
     )
-    assert len([item for item in capabilities if item["status"] == "unavailable"]) == 3
+    assert len([item for item in capabilities if item["status"] == "unavailable"]) == 4
 
 
 def test_cors_allows_local_frontend(client: TestClient) -> None:

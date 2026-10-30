@@ -1,6 +1,6 @@
 # VisionLab AI
 
-A local computer vision workstation for learning five AI-103 image-understanding capabilities. **Phase 4 (B4 + F4)** adds real Florence-2 captions, dense regions, and descriptions of selected YOLO objects. VQA, accessible descriptions, and video inference remain planned.
+A local computer vision workstation for learning five AI-103 image-understanding capabilities. **Phase 5 (B5 + F5)** adds optional OpenAI image Q&A and accessible descriptions, while local YOLO and Florence inference remain available. Video inference remains planned.
 
 ## Run locally
 
@@ -12,7 +12,7 @@ Prerequisites: Python 3.12, Node.js 20.19+ or 22.12+, npm, and FFprobe for video
 cd backend
 Copy-Item .env.example .env
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev,vision,caption]'
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,vision,caption,openai]'
 .\.venv\Scripts\python.exe -m app.scripts.install_model
 .\.venv\Scripts\python.exe -m app.scripts.install_florence
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --no-access-log --host localhost --port 5200
@@ -41,6 +41,18 @@ ffmpeg -version
 ```
 
 The binaries can also be set explicitly with `VISIONLAB_FFPROBE_BINARY` and `VISIONLAB_FFMPEG_BINARY` in `backend/.env`. Missing FFprobe gives a clear `503` error for video upload. Without FFmpeg, video metadata can still be stored but no poster thumbnail is generated.
+
+## Phase 5 image Q&A and accessibility
+
+The OpenAI SDK is optional. To enable cloud vision, add `OPENAI_API_KEY` to **backend/.env** and restart FastAPI. The default model is `gpt-5.4-mini`; set `OPENAI_VISION_MODEL` to another vision-capable Responses model if needed. Never put the key in `frontend/.env` or a `VITE_` variable. Without a key, image upload, YOLO detection, Florence captions, decorative `alt=""`, and saved Florence caption suggestions still work.
+
+In **Visual Q&A**, select an uploaded image, tick the image-specific consent box, and ask a question. Follow-ups reuse up to eight previous messages and the same validated image. Conversations persist in SQLite, can be reopened or cleared, and display model-assessed grounding, uncertainty, latency, and token usage when returned. The provider reports `configured` until a real successful response; `available` never means that a test mock or mere key presence proved cloud access. Answers are model assessments and should be reviewed against the displayed image.
+
+In **Accessibility**, choose informative, functional, complex, or decorative purpose and supply usage context. Decorative creates empty alt text locally without an API call. Other purposes can use OpenAI after consent, or start from a previously saved Florence caption as an explicitly labeled suggestion. Generated text and user edits are saved separately; choose a saved result to edit, copy alt text, or preview its screen-reader wording. Descriptions do not invent object coordinates. Uploaded video remains viewable, while Q&A and descriptions require an image in this phase.
+
+Cloud requests send a resized, EXIF-oriented JPEG with metadata removed, not the original file. A bounded semaphore limits concurrent calls; there is no automatic cloud call on upload or navigation. OpenAI request storage is disabled with `store=False`. Review the [API contract](backend/API.md) and [model notes](backend/MODELS.md).
+
+Automated tests mock the provider and make no paid request. The single live smoke test runs only when both `RUN_LIVE_OPENAI_TESTS=1` and a valid `OPENAI_API_KEY` are present in the shell environment.
 
 ## Phase 4 Florence-2 captions and regions
 

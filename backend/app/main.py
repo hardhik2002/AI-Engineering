@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.routing import Match
 
 from app.api.media import router as media_router
+from app.api.multimodal import router as multimodal_router
 from app.api.routes import router
 from app.api.vision import router as vision_router
 from app.core.config import Settings, get_settings
@@ -19,10 +20,16 @@ from app.core.logging import configure_logging, log_event, request_id_context, s
 from app.core.upload_limit import UploadBodyLimitMiddleware
 from app.providers.captioner import CaptionError, CaptionProvider, Florence2CaptionProvider
 from app.providers.detector import DetectorError, ObjectDetector, YOLO26Detector
+from app.providers.multimodal import (
+    MultimodalVisionProvider,
+    OpenAIVisionProvider,
+    VisionProviderError,
+)
 from app.schemas.media import ApiError, ApiErrorDetail
 from app.services.analysis import AnalysisService
 from app.services.caption import CaptionService
 from app.services.media import MediaError, MediaService
+from app.services.multimodal import MultimodalService
 
 logger = logging.getLogger("visionlab.http")
 
@@ -43,6 +50,7 @@ def create_app(
     settings: Settings | None = None,
     detector: ObjectDetector | None = None,
     caption_provider: CaptionProvider | None = None,
+    multimodal_provider: MultimodalVisionProvider | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
@@ -51,6 +59,10 @@ def create_app(
     analysis_service = AnalysisService(settings, media_service, detector)
     caption_provider = caption_provider or Florence2CaptionProvider(settings)
     caption_service = CaptionService(settings, media_service, caption_provider)
+    multimodal_provider = multimodal_provider or OpenAIVisionProvider(settings)
+    multimodal_service = MultimodalService(
+        settings, media_service, caption_service, multimodal_provider
+    )
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
@@ -73,7 +85,7 @@ def create_app(
             logging.getLogger("visionlab.server"),
             "server.started",
             "COMPLETE VisionLab API started",
-            application_version="0.4.0",
+            application_version="0.5.0",
             environment=settings.environment,
             python_version=platform.python_version(),
             storage_ready=media_service.media_root.is_dir(),
@@ -91,7 +103,7 @@ def create_app(
                 if model_installed_unloaded
                 else "unavailable",
                 "captioning": caption_provider.get_status()["state"],
-                "vqa": "planned",
+                "vqa": multimodal_provider.status()["state"],
                 "video_detection": "planned",
             },
         )
@@ -112,19 +124,21 @@ def create_app(
             "COMPLETE VisionLab API stopped",
         )
 
-    app = FastAPI(title="VisionLab AI API", version="0.4.0", lifespan=lifespan)
+    app = FastAPI(title="VisionLab AI API", version="0.5.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.media_service = media_service
     app.state.detector = detector
     app.state.analysis_service = analysis_service
     app.state.caption_provider = caption_provider
     app.state.caption_service = caption_service
+    app.state.multimodal_provider = multimodal_provider
+    app.state.multimodal_service = multimodal_service
     app.add_middleware(UploadBodyLimitMiddleware, maximum_bytes=settings.max_video_bytes + 65536)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.allowed_origins,
         allow_credentials=False,
-        allow_methods=["GET", "HEAD", "POST", "DELETE"],
+        allow_methods=["GET", "HEAD", "POST", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "Accept", "Range"],
         expose_headers=["Content-Range", "Accept-Ranges", "X-Request-ID"],
     )
@@ -147,6 +161,15 @@ def create_app(
 
     @app.exception_handler(CaptionError)
     async def caption_error_handler(request: Request, error: CaptionError) -> JSONResponse:
+        request.state.error_code = error.code
+        request.state.error_message = error.message
+        body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
+        return JSONResponse(status_code=error.status_code, content=body.model_dump())
+
+    @app.exception_handler(VisionProviderError)
+    async def vision_provider_error_handler(
+        request: Request, error: VisionProviderError
+    ) -> JSONResponse:
         request.state.error_code = error.code
         request.state.error_message = error.message
         body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
@@ -258,6 +281,7 @@ def create_app(
     app.include_router(router)
     app.include_router(media_router)
     app.include_router(vision_router)
+    app.include_router(multimodal_router)
     return app
 
 

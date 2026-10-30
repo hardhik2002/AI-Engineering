@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/v1")
 def health(request: Request) -> HealthResponse:
     settings = request.app.state.settings
     return HealthResponse(
-        status="ok", service="visionlab-api", version="0.4.0", environment=settings.environment
+        status="ok", service="visionlab-api", version="0.5.0", environment=settings.environment
     )
 
 
@@ -28,13 +28,20 @@ def capabilities(request: Request) -> list[Capability]:
             else "unavailable",
             phase=4,
         ),
-        Capability(id="vqa", name="Visual Question Answering", status="planned", phase=5),
+        Capability(
+            id="vqa",
+            name="Visual Question Answering",
+            status="available"
+            if request.app.state.multimodal_provider.status()["state"] == "available"
+            else "unavailable",
+            phase=5,
+        ),
         Capability(id="analysis", name="Image Analysis", status=detection_status, phase=3),
         Capability(
             id="objects", name="Object and Region Understanding", status=detection_status, phase=4
         ),
         Capability(
-            id="accessibility", name="Accessible Image Descriptions", status="planned", phase=5
+            id="accessibility", name="Accessible Image Descriptions", status="available", phase=5
         ),
         Capability(id="media_upload", name="Media Upload", status="available", phase=2),
         Capability(id="image_preview", name="Image Preview", status="available", phase=2),
