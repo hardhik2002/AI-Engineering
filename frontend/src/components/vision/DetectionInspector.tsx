@@ -33,7 +33,7 @@ export function DetectionInspector({ analysis, model, loading, error, visible, s
   const counts = classes.map((label) => ({ label, count: visible.filter((item) => item.label === label).length }))
   const maxCount = Math.max(1, ...counts.map((item) => item.count))
   return <div className="detection-inspector">
-    {loading && <div className="analysis-message" role="status">Running YOLO26 image detection… This may take longer on CPU or on the first run.</div>}
+    {loading && <div className="analysis-message" role="status">Running YOLO26 image detection… This may take longer on CPU or on the first run.<div className="analysis-progress" role="progressbar" aria-label="Image analysis in progress"><i /></div></div>}
     {error && <div className="analysis-message analysis-error" role="alert">{error}</div>}
     {model && model.state !== 'ready' && !analysis && <div className="analysis-message">Model: {model.state.replace('_', ' ')}. {model.detail}</div>}
     {!analysis && !loading && <div className="inspector-empty"><strong>No object analysis yet</strong><p>Select an uploaded image and run Analyze Image. Results are saved locally.</p></div>}

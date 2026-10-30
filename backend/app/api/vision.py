@@ -1,5 +1,6 @@
 from fastapi import APIRouter, Request
 
+from app.schemas.health import CapabilityStatus
 from app.schemas.vision import AnalysisRecord, AnalyzeRequest, DetectionParameters, ModelStatus
 
 router = APIRouter(prefix="/api/v1", tags=["vision"])
@@ -10,8 +11,8 @@ def models(request: Request) -> list[ModelStatus]:
     return [request.app.state.detector.get_status()]
 
 
-@router.get("/vision/capabilities")
-def vision_capabilities(request: Request) -> dict[str, str]:
+@router.get("/vision/capabilities", response_model=dict[str, CapabilityStatus])
+def vision_capabilities(request: Request) -> dict[str, CapabilityStatus]:
     ready = request.app.state.detector.get_status().state == "ready"
     return {
         "object_detection_image": "available" if ready else "unavailable",
@@ -37,16 +38,14 @@ def vision_capabilities(request: Request) -> dict[str, str]:
 @router.post("/media/{media_id}/analyze", response_model=AnalysisRecord, status_code=201)
 def analyze(media_id: str, request: Request, body: AnalyzeRequest | None = None) -> AnalysisRecord:
     settings = request.app.state.settings
-    parameters = (
-        body.parameters
-        if body
-        else DetectionParameters(
-            confidence=settings.detection_confidence,
-            iou=settings.detection_iou,
-            image_size=settings.detection_image_size,
-            max_detections=settings.detection_max_detections,
-        )
+    defaults = DetectionParameters(
+        confidence=settings.detection_confidence,
+        iou=settings.detection_iou,
+        image_size=settings.detection_image_size,
+        max_detections=settings.detection_max_detections,
     )
+    overrides = body.parameters.model_dump(exclude_none=True) if body and body.parameters else {}
+    parameters = DetectionParameters.model_validate(defaults.model_dump() | overrides)
     return request.app.state.analysis_service.analyze(media_id, parameters)
 
 

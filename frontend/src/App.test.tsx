@@ -142,9 +142,28 @@ describe('VisionLab media workspace', () => {
     expect(screen.getByText('300, 160, 360, 400')).toBeInTheDocument()
     fireEvent.change(screen.getByLabelText('Display confidence'), { target: { value: '0.5' } })
     expect(screen.queryByRole('button', { name: 'Select car 48 percent' })).not.toBeInTheDocument()
+    fireEvent.click(screen.getByLabelText('person'))
+    expect(screen.queryByRole('button', { name: 'Select person 92 percent' })).not.toBeInTheDocument()
     expect(analyzeImage).toHaveBeenCalledOnce()
+    fireEvent.click(screen.getByRole('button', { name: 'Reset visualization controls' }))
     fireEvent.click(screen.getByRole('link', { name: /objects & regions/i }))
     expect(screen.getByRole('button', { name: 'Select person 92 percent' })).toBeInTheDocument()
+  })
+
+  it('shows analysis progress and sends changed inference parameters only on a new run', async () => {
+    vi.mocked(listMedia).mockResolvedValue([imageAsset])
+    let finish!: (record: AnalysisRecord) => void
+    vi.mocked(analyzeImage).mockImplementationOnce(() => new Promise((resolve) => { finish = resolve }))
+      .mockResolvedValueOnce({ ...savedAnalysis, analysis_id: 'fc69ea26-25f9-456c-a37c-5737ef4d1f4e' })
+    renderApp('/workspace/analysis')
+    fireEvent.click(await screen.findByRole('button', { name: 'Analyze Image' }))
+    expect(await screen.findByRole('progressbar', { name: 'Image analysis in progress' })).toBeInTheDocument()
+    finish(savedAnalysis)
+    await screen.findByRole('button', { name: 'Re-run Analysis' })
+    fireEvent.change(screen.getByLabelText('Inference confidence'), { target: { value: '0.4' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Re-run Analysis' }))
+    await waitFor(() => expect(analyzeImage).toHaveBeenCalledTimes(2))
+    expect(vi.mocked(analyzeImage).mock.calls[1][1].confidence).toBe(0.4)
   })
 
   it('restores a saved analysis and shows an honest empty result', async () => {

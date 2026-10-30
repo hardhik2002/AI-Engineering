@@ -1,4 +1,5 @@
 import importlib.metadata
+from hashlib import sha256
 from threading import Lock
 from typing import Protocol
 
@@ -42,6 +43,7 @@ class YOLO26Detector:
         self._lock = Lock()
         self._model = None
         self._device: str | None = None
+        self._weights_sha256: str | None = None
         self._state: str = "not_installed"
         self._detail: str | None = None
 
@@ -57,7 +59,16 @@ class YOLO26Detector:
                 else None
             )
         return ModelStatus(
-            state=state, name=self.settings.detection_model, device=self._device, detail=detail
+            state=state,
+            name=self.settings.detection_model,
+            device=self._device,
+            detail=detail,
+            defaults=DetectionParameters(
+                confidence=self.settings.detection_confidence,
+                iou=self.settings.detection_iou,
+                image_size=self.settings.detection_image_size,
+                max_detections=self.settings.detection_max_detections,
+            ),
         )
 
     def load_model(self) -> None:
@@ -91,6 +102,11 @@ class YOLO26Detector:
                     else "cpu"
                 )
                 self._model = YOLO(str(self.weights_path))
+                digest = sha256()
+                with self.weights_path.open("rb") as weights:
+                    for chunk in iter(lambda: weights.read(1024 * 1024), b""):
+                        digest.update(chunk)
+                self._weights_sha256 = digest.hexdigest()
                 self._state = "ready"
                 self._detail = None
             except DetectorError:
@@ -109,7 +125,7 @@ class YOLO26Detector:
 
             assert self._model is not None
             result = self._model.predict(
-                source=np.asarray(image),
+                source=np.asarray(image)[:, :, ::-1].copy(),
                 conf=configuration.confidence,
                 iou=configuration.iou,
                 imgsz=configuration.image_size,
@@ -141,6 +157,7 @@ class YOLO26Detector:
         return ModelInfo(
             name=self.settings.detection_model,
             device=self._device,
-            version=self.settings.detection_model,
+            version="YOLO26",
             package_version=importlib.metadata.version("ultralytics"),
+            weights_sha256=self._weights_sha256,
         )

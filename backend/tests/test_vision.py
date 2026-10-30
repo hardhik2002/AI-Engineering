@@ -1,6 +1,9 @@
 import io
+import sys
+from datetime import UTC, datetime
 from pathlib import Path
 from threading import Event, Thread
+from types import SimpleNamespace
 from uuid import UUID
 
 import pytest
@@ -10,6 +13,8 @@ from PIL import Image
 from app.core.config import Settings
 from app.main import create_app
 from app.providers.detector import DetectorError, RawDetection, YOLO26Detector
+from app.repositories.media import MediaRepository
+from app.schemas.media import MediaAsset
 from app.schemas.vision import DetectionParameters, ModelInfo, ModelStatus
 from app.services.analysis import normalized_detection
 
@@ -143,6 +148,23 @@ def test_validation_errors_and_capabilities(settings: Settings) -> None:
         assert client.get(f"/api/v1/media/{media_id}/analyses").json()[0]["status"] == "failed"
 
 
+def test_server_defaults_and_partial_overrides(settings: Settings) -> None:
+    configured = settings.model_copy(update={"detection_confidence": 0.35, "detection_iou": 0.6})
+    with TestClient(create_app(configured, FakeDetector([]))) as client:
+        media_id = upload_image(client)
+        assert (
+            client.post(f"/api/v1/media/{media_id}/analyze", json={}).json()["parameters"][
+                "confidence"
+            ]
+            == 0.35
+        )
+        overridden = client.post(
+            f"/api/v1/media/{media_id}/analyze", json={"parameters": {"confidence": 0.7}}
+        ).json()["parameters"]
+        assert overridden["confidence"] == 0.7
+        assert overridden["iou"] == 0.6
+
+
 def test_invalid_detector_coordinates() -> None:
     for box in ((float("nan"), 0, 5, 5), (8, 0, 3, 5), (-10, 0, -1, 5)):
         with pytest.raises(ValueError):
@@ -158,6 +180,87 @@ def test_model_status_missing_weights(settings: Settings) -> None:
     with pytest.raises(DetectorError, match="not installed"):
         detector.load_model()
     assert detector.get_status().state == "not_installed"
+
+
+def test_model_load_is_cached_and_cuda_failure_is_reported(
+    settings: Settings, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    weights = settings.model_root / "yolo26n.pt"
+    weights.parent.mkdir(parents=True)
+    weights.write_bytes(b"test weights")
+    loaded: list[str] = []
+    monkeypatch.setitem(
+        sys.modules, "torch", SimpleNamespace(cuda=SimpleNamespace(is_available=lambda: False))
+    )
+    monkeypatch.setitem(
+        sys.modules,
+        "ultralytics",
+        SimpleNamespace(YOLO=lambda path: loaded.append(path) or object()),
+    )
+    detector = YOLO26Detector(settings)
+    assert detector.get_status().state == "unavailable"
+    detector.load_model()
+    detector.load_model()
+    assert len(loaded) == 1
+    assert detector.get_status().state == "ready"
+    assert len(detector.get_model_info().weights_sha256 or "") == 64
+    cuda = YOLO26Detector(settings.model_copy(update={"detection_device": "cuda"}))
+    with pytest.raises(DetectorError) as error:
+        cuda.load_model()
+    assert error.value.code == "device_unavailable"
+    assert cuda.get_status().state == "unavailable"
+
+
+def test_video_analysis_is_explicitly_unsupported(settings: Settings) -> None:
+    fake = FakeDetector()
+    with TestClient(create_app(settings, fake)) as client:
+        media_id = "92f98d26-e6e6-49e7-bf9c-f1b7d31de121"
+        MediaRepository(settings.database_path).insert(
+            MediaAsset(
+                media_id=media_id,
+                original_filename="clip.mp4",
+                media_type="video",
+                detected_mime_type="video/mp4",
+                width=640,
+                height=360,
+                file_size_bytes=8,
+                duration_ms=1000,
+                frame_rate=30,
+                video_codec="h264",
+                playback_compatibility="likely",
+                created_at=datetime.now(UTC),
+                sha256="0" * 64,
+                thumbnail_available=False,
+            ),
+            f"{media_id}.mp4",
+            None,
+        )
+        response = client.post(f"/api/v1/media/{media_id}/analyze")
+        assert response.status_code == 422
+        assert response.json()["error"]["code"] == "unsupported_media_task"
+        assert fake.calls == 0
+
+
+def test_large_image_boxes_normalize_to_original_dimensions(settings: Settings) -> None:
+    fake = FakeDetector([RawDetection(0, "person", 0.8, (160, 80, 320, 240))])
+    resized_settings = settings.model_copy(update={"detection_max_source_side": 640})
+    with TestClient(create_app(resized_settings, fake)) as client:
+        image = Image.new("RGB", (800, 400), "green")
+        output = io.BytesIO()
+        image.save(output, format="PNG")
+        uploaded = client.post(
+            "/api/v1/media/upload", files={"file": ("large.png", output.getvalue(), "image/png")}
+        )
+        media_id = uploaded.json()["media_id"]
+        result = client.post(f"/api/v1/media/{media_id}/analyze").json()
+        assert fake.images == [(640, 320)]
+        assert result["image"] == {"width": 800, "height": 400, "coordinate_space": "exif_oriented"}
+        assert result["detections"][0]["bounding_box"] == {
+            "x": 0.25,
+            "y": 0.25,
+            "width": 0.25,
+            "height": 0.5,
+        }
 
 
 def test_capacity_rejects_parallel_analysis(settings: Settings) -> None:

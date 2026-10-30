@@ -90,6 +90,7 @@ function Workstation() {
   const [showLabels, setShowLabels] = useState(true)
   const [showConfidence, setShowConfidence] = useState(true)
   const [inferenceParameters, setInferenceParameters] = useState<DetectionParameters>({ confidence: 0.25, iou: 0.45, image_size: 640, max_detections: 100 })
+  const [inferenceEdited, setInferenceEdited] = useState(false)
 
   useEffect(() => {
     document.documentElement.dataset.theme = theme
@@ -103,6 +104,10 @@ function Workstation() {
   const detectionModule = current.id === 'analysis' || current.id === 'objects'
   const imageForAnalysis = detectionModule && activeAsset?.media_type === 'image' ? activeAsset : null
   const modelQuery = useQuery({ queryKey: ['vision-models'], queryFn: getModels, enabled: health.isSuccess && detectionModule, refetchInterval: 15000 })
+  useEffect(() => {
+    const defaults = modelQuery.data?.[0]?.defaults
+    if (defaults && !inferenceEdited) setInferenceParameters(defaults)
+  }, [modelQuery.data, inferenceEdited])
   const analysesQuery = useQuery({ queryKey: ['analyses', imageForAnalysis?.media_id], queryFn: () => listAnalyses(imageForAnalysis!.media_id), enabled: !!imageForAnalysis && health.isSuccess })
   const runAnalysis = useMutation({ mutationFn: () => analyzeImage(imageForAnalysis!.media_id, inferenceParameters), onSuccess: (record) => {
     selectAnalysis(record.analysis_id)
@@ -123,6 +128,7 @@ function Workstation() {
   function onUploaded(asset: MediaAsset) {
     setUploadNotice(`${asset.original_filename} uploaded and ready.`)
     selectMedia(asset.media_id)
+    runAnalysis.reset()
     setSelectedObjectId(null)
     resetDisplay()
     queryClient.setQueryData<MediaAsset[]>(['media'], (current) =>
@@ -137,6 +143,7 @@ function Workstation() {
     try {
       await deleteMedia(mediaId)
       selectMedia(assets.find((asset) => asset.media_id !== mediaId)?.media_id ?? null)
+      runAnalysis.reset()
       queryClient.removeQueries({ queryKey: ['analyses', mediaId] })
       queryClient.setQueryData<MediaAsset[]>(['media'], (current) =>
         (current ?? []).filter((item) => item.media_id !== mediaId))
@@ -226,13 +233,13 @@ function Workstation() {
         {detectionModule && <section className="analysis-run-panel" aria-label="Image detection controls">
           <div><strong>YOLO26 Nano · Image detection</strong><span>{activeAsset?.media_type === 'video' ? 'Video analysis is planned for Phase 6.' : imageForAnalysis ? `Model ${modelQuery.data?.[0]?.state.replace('_', ' ') ?? 'checking'} · ${analyses.length} saved run${analyses.length === 1 ? '' : 's'}` : 'Select or upload an image to begin.'}</span></div>
           {imageForAnalysis && <>
-            <div className="inference-fields"><label>Inference confidence <input aria-label="Inference confidence" type="number" min="0.01" max="1" step="0.01" value={inferenceParameters.confidence} onChange={(event) => setInferenceParameters({ ...inferenceParameters, confidence: Number(event.target.value) })} /></label><label>IoU <input aria-label="Inference IoU" type="number" min="0" max="1" step="0.01" value={inferenceParameters.iou} onChange={(event) => setInferenceParameters({ ...inferenceParameters, iou: Number(event.target.value) })} /></label></div>
+            <div className="inference-fields"><label>Inference confidence <input aria-label="Inference confidence" type="number" min="0.01" max="1" step="0.01" value={inferenceParameters.confidence} onChange={(event) => { setInferenceEdited(true); setInferenceParameters({ ...inferenceParameters, confidence: Number(event.target.value) }) }} /></label><label>IoU <input aria-label="Inference IoU" type="number" min="0" max="1" step="0.01" value={inferenceParameters.iou} onChange={(event) => { setInferenceEdited(true); setInferenceParameters({ ...inferenceParameters, iou: Number(event.target.value) }) }} /></label></div>
             <Button type="button" onClick={() => runAnalysis.mutate()} disabled={runAnalysis.isPending || inferenceParameters.confidence <= 0 || inferenceParameters.confidence > 1 || inferenceParameters.iou < 0 || inferenceParameters.iou > 1}>{runAnalysis.isPending ? 'Analyzing…' : analysis ? 'Re-run Analysis' : 'Analyze Image'}</Button>
             {analyses.length > 1 && <label className="analysis-run-select">Saved run <select aria-label="Saved analysis" value={analysis?.analysis_id} onChange={(event) => { selectAnalysis(event.target.value); setSelectedObjectId(null) }}>{analyses.map((item) => <option key={item.analysis_id} value={item.analysis_id}>{new Date(item.created_at).toLocaleString()} · {item.status}</option>)}</select></label>}
           </>}
         </section>}
 
-        <MediaLibrary assets={assets} activeId={activeAsset?.media_id ?? null} onSelect={(id) => { selectMedia(id); setSelectedObjectId(null); resetDisplay() }} loading={health.isPending || (media.isPending && health.isSuccess)} error={media.isError || health.isError} onRetry={() => { void health.refetch(); void media.refetch() }} />
+        <MediaLibrary assets={assets} activeId={activeAsset?.media_id ?? null} onSelect={(id) => { selectMedia(id); runAnalysis.reset(); setSelectedObjectId(null); resetDisplay() }} loading={health.isPending || (media.isPending && health.isSuccess)} error={media.isError || health.isError} onRetry={() => { void health.refetch(); void media.refetch() }} />
 
         <section className="foundation-strip" aria-label="Phase three progress">
           <div className="foundation-icon"><Check size={18} /></div>

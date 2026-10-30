@@ -11,9 +11,16 @@ class DetectionParameters(BaseModel):
     max_detections: int = Field(default=100, ge=1, le=300)
 
 
+class DetectionParameterOverrides(BaseModel):
+    confidence: float | None = Field(default=None, gt=0, le=1)
+    iou: float | None = Field(default=None, ge=0, le=1)
+    image_size: int | None = Field(default=None, ge=160, le=1280)
+    max_detections: int | None = Field(default=None, ge=1, le=300)
+
+
 class AnalyzeRequest(BaseModel):
     tasks: list[Literal["object_detection"]] = Field(default_factory=lambda: ["object_detection"])
-    parameters: DetectionParameters = Field(default_factory=DetectionParameters)
+    parameters: DetectionParameterOverrides | None = None
 
     @model_validator(mode="after")
     def one_task(self) -> "AnalyzeRequest":
@@ -49,6 +56,7 @@ class ModelInfo(BaseModel):
     device: str
     version: str
     package_version: str
+    weights_sha256: str | None = None
 
 
 class ModelStatus(BaseModel):
@@ -56,6 +64,7 @@ class ModelStatus(BaseModel):
     name: str
     device: str | None = None
     detail: str | None = None
+    defaults: DetectionParameters | None = None
 
 
 class ImageInfo(BaseModel):

@@ -1,5 +1,6 @@
 import logging
 import math
+import sqlite3
 from collections import Counter
 from datetime import UTC, datetime
 from pathlib import Path
@@ -61,9 +62,9 @@ def prepare_image(path: Path, max_side: int) -> tuple[Image.Image, int, int]:
     with Image.open(path) as source:
         oriented = ImageOps.exif_transpose(source)
         width, height = oriented.size
+        if max(width, height) > max_side:
+            oriented.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
         image = oriented.convert("RGB")
-    if max(width, height) > max_side:
-        image.thumbnail((max_side, max_side), Image.Resampling.LANCZOS)
     return image, width, height
 
 
@@ -101,7 +102,10 @@ class AnalysisService:
         started = perf_counter()
         created_at = datetime.now(UTC)
         analysis_id = str(uuid4())
-        self.repository.insert_started(analysis_id, media_id, created_at)
+        try:
+            self.repository.insert_started(analysis_id, media_id, created_at)
+        except sqlite3.IntegrityError as exc:
+            raise MediaError("media_not_found", "Media item was not found.", 404) from exc
         try:
             image, source_width, source_height = prepare_image(
                 path, self.settings.detection_max_source_side
@@ -115,7 +119,11 @@ class AnalysisService:
             raw = self.detector.detect(image, parameters)
             inference_ms = (perf_counter() - inference_start) * 1000
             post_start = perf_counter()
-            detections = [normalized_detection(item, image.width, image.height) for item in raw]
+            detections = sorted(
+                (normalized_detection(item, image.width, image.height) for item in raw),
+                key=lambda item: item.confidence,
+                reverse=True,
+            )
             counts = dict(sorted(Counter(item.label for item in detections).items()))
             post_ms = (perf_counter() - post_start) * 1000
             completed_at = datetime.now(UTC)

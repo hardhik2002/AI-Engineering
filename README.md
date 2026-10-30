@@ -1,6 +1,6 @@
 # VisionLab AI
 
-A local computer vision workstation for learning five AI-103 image-understanding capabilities. **Phase 2 (B2 + F2)** adds real image/video upload, persistent metadata, a shared media library, and interactive viewers. The five AI inference modules remain planned; this phase returns no generated predictions.
+A local computer vision workstation for learning five AI-103 image-understanding capabilities. **Phase 3 (B3 + F3)** adds real YOLO26 Nano detection on uploaded images, saved analysis runs, object counts, and interactive overlays. Captioning, VQA, video inference, and advanced region understanding remain planned.
 
 ## Run locally
 
@@ -12,7 +12,8 @@ Prerequisites: Python 3.12, Node.js 20.19+ or 22.12+, npm, and FFprobe for video
 cd backend
 Copy-Item .env.example .env
 py -3.12 -m venv .venv
-.\.venv\Scripts\python.exe -m pip install -e '.[dev]'
+.\.venv\Scripts\python.exe -m pip install -e '.[dev,vision]'
+.\.venv\Scripts\python.exe -m app.scripts.install_model
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host localhost --port 5200
 ```
 
@@ -40,7 +41,17 @@ ffmpeg -version
 
 The binaries can also be set explicitly with `VISIONLAB_FFPROBE_BINARY` and `VISIONLAB_FFMPEG_BINARY` in `backend/.env`. Missing FFprobe gives a clear `503` error for video upload. Without FFmpeg, video metadata can still be stored but no poster thumbnail is generated.
 
-## Phase 2 features
+## Phase 3 image detection
+
+- In **Image Analysis** or **Objects & regions**, select an uploaded JPEG, PNG, or WebP and choose **Analyze Image**. YOLO26 Nano returns real class labels, scores, and boxes. Results are saved in SQLite and reopen after refresh.
+- The inspector shows object counts, class distribution, timing, model metadata, saved runs, and normalized and pixel coordinates. Select an object from its box or list and use Previous/Next for navigation.
+- Display confidence and class filters, box/label/score switches, and reset controls change only the view. Inference confidence and IoU are separate; **Re-run Analysis** creates a new saved run.
+- The backend and browser use EXIF-oriented dimensions. The same image layer transforms the source, canvas, and selectable boxes while fitting, resizing, zooming, panning, and entering fullscreen.
+- Video analysis explicitly reports that it is planned for Phase 6. A valid empty result means the model found no supported objects above the chosen threshold.
+
+The detector uses pretrained COCO categories. Detection scores are model confidence scores, not calibrated probabilities. It does not infer activities, relationships, text, attributes, captions, or a scene narrative. The Ultralytics package and model have [AGPL-3.0 and Enterprise licensing options](https://docs.ultralytics.com/help/quickstart/#ultralytics-license); review the license before distributing a modified or hosted product. See [model setup](backend/MODELS.md), [API contract](backend/API.md), and [architecture](docs/ARCHITECTURE.md).
+
+## Phase 2 media features
 
 - JPEG, PNG, WebP, MP4 and WebM upload with client progress, cancellation, retry and backend validation.
 - SQLite metadata and UUID-named files in `backend/data/media/`; thumbnails in `backend/data/thumbnails/`. These paths and the database are ignored by Git.
@@ -65,11 +76,12 @@ The frontend reads effective limits from `GET /api/v1/media/limits`. The backend
 
 ```text
 backend/app/
-  api/             system and media routes
+  api/             system, media and vision routes
   core/            settings, request logging, upload body limit
-  repositories/    SQLite metadata access
+  providers/       lazy YOLO26 detector
+  repositories/    SQLite media and analysis persistence
   schemas/         typed API contracts
-  services/        validation, thumbnails, video probing, storage
+  services/        media storage and bounded image analysis
 frontend/src/
   components/media/  uploader, library, image/video viewers, overlays, inspector
   lib/               API client and formatting helpers
@@ -77,7 +89,7 @@ frontend/src/
   types/             TypeScript API and future overlay contracts
 ```
 
-The backend keeps media validation and storage out of route handlers. CPU development uses Pillow and external FFprobe/FFmpeg rather than loading AI frameworks. Media IDs, not disk paths, appear in browser URLs. The React viewer uses the real saved content endpoint; overlays have no detections until a provider is implemented.
+The backend keeps media validation and inference out of route handlers. Image inference runs in the FastAPI thread pool with a bounded semaphore; excess concurrent requests receive `429`. Model weights load lazily and remain cached. An additive SQLite migration preserves existing media records, and deleting media cascades to its analyses. Media IDs, not disk paths, appear in browser URLs.
 
 ## Verify
 
@@ -85,6 +97,7 @@ The backend keeps media validation and storage out of route handlers. CPU develo
 cd backend
 .\.venv\Scripts\python.exe -m pytest
 .\.venv\Scripts\python.exe -m ruff check .
+$env:VISIONLAB_RUN_REAL_MODEL='1'; .\.venv\Scripts\python.exe -m pytest -q -s tests/test_real_model.py
 
 cd ..\frontend
 npm test
@@ -92,10 +105,12 @@ npm run lint
 npm run build
 ```
 
-To check manually, upload a JPEG (including a rotated phone photo) and an H.264 MP4, switch among the five modules, refresh, and select them again from Recent media. Seek the video and try image zoom/pan. See [backend/API.md](backend/API.md) for a byte-range request example. Browser playback depends on the uploaded codecs; the API reports `likely` or `uncertain`, not a guarantee.
+The optional real-model test needs a local JPEG: set `VISIONLAB_SMOKE_IMAGE` to its path, or place the [Ultralytics sample photo](https://ultralytics.com/images/bus.jpg) at `backend/data/smoke/bus.jpg`. It skips during ordinary `pytest` runs.
+
+To check manually, upload a photo containing people or vehicles, run Image Analysis, select a box, and confirm the matching list item and coordinates. Change display filters without new inference. Zoom, pan, resize, enter fullscreen, refresh, and reopen the saved run. Try an EXIF-rotated photo and an image with no expected COCO objects. Select a video and confirm analysis remains unavailable while playback works. Browser playback depends on the uploaded codecs; the API reports `likely` or `uncertain`, not a guarantee.
 
 ## Current limits
 
-Phase 2 does not perform AI inference, video analysis, tracking, webcam capture, segmentation or export. The recent-media endpoint returns up to 100 newest items and has no pagination yet. Video validation uses bounded metadata inspection and preview decode; it does not scan every frame for corruption. Cancelling a browser upload cannot undo a request the server has already fully received. This is a local development app without authentication or cloud storage.
+Phase 3 performs image object detection only. Video analysis, tracking, webcam capture, segmentation, captioning, VQA, and exports remain planned. Media and analysis lists each return at most 100 newest items with no pagination. This local app has no authentication; a production multi-user deployment needs authentication and authorization. Video validation uses bounded metadata inspection and preview decode; it does not scan every frame for corruption. Cancelling a browser upload cannot undo a request the server has already fully received.
 
 Before integrating YOLO26 Nano in Phase 3, review [Ultralytics' YOLO26 licensing](https://docs.ultralytics.com/models/yolo26/): its code and models are offered under AGPL-3.0 and Enterprise licenses.

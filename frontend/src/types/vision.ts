@@ -14,7 +14,7 @@ export interface AnalysisRecord {
   task: 'object_detection'
   created_at: string
   completed_at: string
-  model: { provider: string; name: string; device: string; version: string; package_version: string } | null
+  model: { provider: string; name: string; device: string; version: string; package_version: string; weights_sha256?: string | null } | null
   image: { width: number; height: number; coordinate_space: 'exif_oriented' } | null
   parameters: DetectionParameters
   detections: DetectedObject[]
@@ -27,4 +27,5 @@ export interface ModelStatus {
   name: string
   device: string | null
   detail: string | null
+  defaults?: DetectionParameters | null
 }
