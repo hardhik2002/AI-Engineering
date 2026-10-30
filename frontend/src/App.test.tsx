@@ -93,6 +93,7 @@ describe('VisionLab media workspace', () => {
     expect(screen.getByLabelText('Seek video')).toBeInTheDocument()
     expect(screen.getByText('30 fps')).toBeInTheDocument()
     expect(useMediaStore.getState().activeMediaId).toBe(videoAsset.media_id)
+    expect(localStorage.getItem('visionlab-active-media')).toContain(videoAsset.media_id)
   })
 
   it('shows a disconnected state when the backend is unavailable', async () => {

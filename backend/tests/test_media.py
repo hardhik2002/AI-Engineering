@@ -36,7 +36,7 @@ def image_bytes(
     exif = Image.Exif()
     if orientation:
         exif[274] = orientation
-    image.save(buffer, format=format, exif=exif if orientation else None)
+    image.save(buffer, format=format, **({"exif": exif} if orientation else {}))
     return buffer.getvalue()
 
 
@@ -72,6 +72,12 @@ def test_image_upload_persistence_listing_thumbnail_and_delete(
     assert client.get(f"/api/v1/media/{media_id}").status_code == 404
     assert list(settings.media_root.iterdir()) == []
     assert list(settings.thumbnail_root.iterdir()) == []
+
+
+def test_webp_image_upload(client: TestClient) -> None:
+    response = upload(client, "sample.webp", image_bytes("WEBP"), "image/webp")
+    assert response.status_code == 201, response.text
+    assert response.json()["detected_mime_type"] == "image/webp"
 
 
 def test_upload_rejects_invalid_files_and_cleans_up(settings: Settings, client: TestClient) -> None:
@@ -141,6 +147,19 @@ def test_invalid_ids_and_range_requests(client: TestClient) -> None:
     assert client.head(base).headers["content-length"] == str(len(content))
     assert client.get("/api/v1/media/not-a-uuid").status_code == 404
     assert client.get("/api/v1/media/%2e%2e%5csecret/content").status_code == 404
+
+
+def test_upload_cors_preflight(client: TestClient) -> None:
+    response = client.options(
+        "/api/v1/media/upload",
+        headers={
+            "Origin": "http://localhost:5180",
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://localhost:5180"
 
 
 @pytest.fixture

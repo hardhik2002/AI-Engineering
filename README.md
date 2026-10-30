@@ -16,7 +16,7 @@ py -3.12 -m venv .venv
 .\.venv\Scripts\python.exe -m uvicorn app.main:app --reload --host localhost --port 5200
 ```
 
-If `py -3.12` is unavailable, create the environment with `uv venv --python 3.12 .venv` (when uv is installed) or another Python 3.12 executable. On macOS/Linux, use `python3.12 -m venv .venv` and `.venv/bin/python`.
+If `py -3.12` is unavailable, run `py -0p` and select an installed Python 3.12 runtime. On this workstation, `py -V:Astral/CPython3.12.15 -m venv .venv` works. With uv installed, `uv venv --python 3.12 --seed .venv` also creates a pip-ready environment. On macOS/Linux, use `python3.12 -m venv .venv` and `.venv/bin/python`.
 
 **Frontend — http://localhost:5180**
 
