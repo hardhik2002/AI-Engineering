@@ -83,6 +83,44 @@ class MediaRepository:
             )""")
             connection.execute("""CREATE INDEX IF NOT EXISTS idx_accessibility_media
                 ON accessibility_results(media_id, created_at DESC)""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS video_analyses (
+                analysis_id TEXT PRIMARY KEY,
+                media_id TEXT NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                record_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE INDEX IF NOT EXISTS idx_video_analyses_media
+                ON video_analyses(media_id, created_at DESC)""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS video_jobs (
+                job_id TEXT PRIMARY KEY,
+                analysis_id TEXT NOT NULL REFERENCES video_analyses(analysis_id) ON DELETE CASCADE,
+                media_id TEXT NOT NULL REFERENCES media(media_id) ON DELETE CASCADE,
+                status TEXT NOT NULL,
+                revision INTEGER NOT NULL,
+                record_json TEXT NOT NULL,
+                created_at TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE INDEX IF NOT EXISTS idx_video_jobs_media
+                ON video_jobs(media_id, created_at DESC)""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS video_frames (
+                frame_id TEXT PRIMARY KEY,
+                analysis_id TEXT NOT NULL REFERENCES video_analyses(analysis_id) ON DELETE CASCADE,
+                timestamp_ms INTEGER NOT NULL,
+                record_json TEXT NOT NULL,
+                UNIQUE(analysis_id, timestamp_ms)
+            )""")
+            connection.execute("""CREATE INDEX IF NOT EXISTS idx_video_frames_time
+                ON video_frames(analysis_id, timestamp_ms)""")
+            connection.execute("""CREATE TABLE IF NOT EXISTS video_captions (
+                caption_id TEXT PRIMARY KEY,
+                analysis_id TEXT NOT NULL REFERENCES video_analyses(analysis_id) ON DELETE CASCADE,
+                timestamp_ms INTEGER NOT NULL,
+                version INTEGER NOT NULL,
+                record_json TEXT NOT NULL
+            )""")
+            connection.execute("""CREATE INDEX IF NOT EXISTS idx_video_captions_time
+                ON video_captions(analysis_id, timestamp_ms)""")
 
     @contextmanager
     def _connect(self) -> Iterator[sqlite3.Connection]:

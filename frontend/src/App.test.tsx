@@ -9,9 +9,12 @@ import { useMediaStore } from '@/store/media'
 import { useThemeStore } from '@/store/theme'
 import { analyzeImage, getModels, listAnalyses } from '@/lib/vision'
 import { describeObject, generateCaption, generateDenseRegions, getCaptionModel, listCaptions } from '@/lib/caption'
+import { askVideo, cancelVideoJob, getVideoCaptions, getVideoFrames, getVideoJob, getVideoTimeline, getVideoTracks, listVideoAnalyses, startVideoAnalysis } from '@/lib/video'
+import { getVisionProviders, listConversations } from '@/lib/multimodal'
 import type { CaptionRecord } from '@/types/caption'
 import type { AnalysisRecord } from '@/types/vision'
 import type { MediaAsset } from '@/types/media'
+import type { VideoAnalysis, VideoJob } from '@/types/video'
 
 vi.mock('@/lib/api', () => ({ getHealth: vi.fn(), getCapabilities: vi.fn() }))
 vi.mock('@/lib/media', async (importOriginal) => ({
@@ -20,6 +23,13 @@ vi.mock('@/lib/media', async (importOriginal) => ({
 }))
 vi.mock('@/lib/vision', () => ({ analyzeImage: vi.fn(), getModels: vi.fn(), listAnalyses: vi.fn() }))
 vi.mock('@/lib/caption', () => ({ describeObject: vi.fn(), generateCaption: vi.fn(), generateDenseRegions: vi.fn(), getCaptionModel: vi.fn(), listCaptions: vi.fn() }))
+vi.mock('@/lib/video', async (original) => ({ ...(await original<typeof import('@/lib/video')>()), startVideoAnalysis: vi.fn(), cancelVideoJob: vi.fn(), askVideo: vi.fn(), listVideoAnalyses: vi.fn(), getVideoJob: vi.fn(), getVideoFrames: vi.fn(), getVideoTimeline: vi.fn(), getVideoTracks: vi.fn(), getVideoCaptions: vi.fn() }))
+vi.mock('@/lib/multimodal', async (original) => ({ ...(await original<typeof import('@/lib/multimodal')>()), listConversations: vi.fn(), getVisionProviders: vi.fn() }))
+vi.mock('@/components/live/LiveCameraWorkspace', () => ({
+  LiveCameraStage: ({ onSnapshot }: { onSnapshot: (asset: MediaAsset) => void }) =>
+    <button type="button" onClick={() => onSnapshot(imageAsset)}>Save test snapshot</button>,
+  LiveCameraInspector: () => <p>Live inspector</p>,
+}))
 
 const imageAsset: MediaAsset = {
   media_id: 'f2af6ea3-92c0-4eba-9afd-d6a9a225e3a9', original_filename: 'garden.png',
@@ -51,6 +61,22 @@ const savedCaption: CaptionRecord = {
   duration_ms: 80, model_load_ms: 0, inference_ms: 70, text: 'A real model response.', regions: [],
   detection_analysis_id: null, detection_id: null,
 }
+const videoAnalysis: VideoAnalysis = {
+  analysis_id: 'e537cb3a-cef0-44fa-b793-08a5f36db34e', media_id: videoAsset.media_id,
+  job_id: 'e537cb3a-cef0-44fa-b793-08a5f36db35e', status: 'completed',
+  parameters: { detection_fps: 2, caption_interval_seconds: 10, generate_captions: true,
+    track_objects: true, detection: { confidence: 0.25, iou: 0.45, image_size: 640, max_detections: 100 } },
+  created_at: '2026-10-30T00:00:00Z', completed_at: '2026-10-30T00:00:02Z',
+  duration_ms: 5000, coverage_end_ms: 4500, processed_frames: 10,
+  caption_frames: 1, elapsed_ms: 2000, error_code: null,
+}
+const videoJob: VideoJob = {
+  job_id: videoAnalysis.job_id, analysis_id: videoAnalysis.analysis_id,
+  media_id: videoAsset.media_id, kind: 'analysis', status: 'completed', stage: 'completed',
+  processed_frames: 10, total_frames_estimate: 10, current_timestamp_ms: 4500,
+  elapsed_ms: 2000, error_code: null, created_at: '2026-10-30T00:00:00Z',
+  updated_at: '2026-10-30T00:00:02Z', revision: 11, target_timestamp_ms: null,
+}
 
 function renderApp(route = '/workspace/captioning') {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
@@ -81,6 +107,17 @@ describe('VisionLab media workspace', () => {
     vi.mocked(listAnalyses).mockResolvedValue([])
     vi.mocked(getCaptionModel).mockResolvedValue({ state: 'installed_not_loaded', name: 'Florence-2', revision: 'pinned', device: null })
     vi.mocked(listCaptions).mockResolvedValue([])
+    vi.mocked(listVideoAnalyses).mockResolvedValue([])
+    vi.mocked(getVideoJob).mockResolvedValue(videoJob)
+    vi.mocked(getVideoFrames).mockResolvedValue([])
+    vi.mocked(getVideoTimeline).mockResolvedValue([])
+    vi.mocked(getVideoTracks).mockResolvedValue([])
+    vi.mocked(getVideoCaptions).mockResolvedValue([])
+    vi.mocked(listConversations).mockResolvedValue([])
+    vi.mocked(getVisionProviders).mockResolvedValue({
+      vqa: { provider: 'openai', state: 'configured', model: 'test' },
+      accessibility: { provider: 'openai', state: 'configured', model: 'test' },
+    })
   })
 
   it('keeps the empty state and reports current capability status', async () => {
@@ -186,14 +223,84 @@ describe('VisionLab media workspace', () => {
     expect(screen.getAllByText('0', { selector: '.analysis-stats strong' })).toHaveLength(2)
   })
 
-  it('reports unavailable model and unsupported video analysis', async () => {
+  it('reports unavailable image model while exposing video analysis controls', async () => {
     vi.mocked(listMedia).mockResolvedValue([imageAsset, videoAsset])
     vi.mocked(getModels).mockResolvedValue([{ state: 'not_installed', name: 'yolo26n.pt', device: null, detail: 'Install model weights.' }])
     renderApp('/workspace/analysis')
     expect(await screen.findByText(/Install model weights/)).toBeInTheDocument()
     fireEvent.click(screen.getByRole('button', { name: /clip.mp4 video/i }))
-    expect(screen.getByText('Video analysis is planned for Phase 6.')).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Analyze Video' })).toBeInTheDocument()
     expect(screen.queryByRole('button', { name: 'Analyze Image' })).not.toBeInTheDocument()
+  })
+
+  it('queues video analysis and reopens a saved run', async () => {
+    vi.mocked(listMedia).mockResolvedValue([videoAsset])
+    vi.mocked(listVideoAnalyses).mockResolvedValue([videoAnalysis])
+    vi.mocked(startVideoAnalysis).mockResolvedValue({ ...videoJob, status: 'queued', stage: 'queued' })
+    renderApp('/workspace/analysis')
+    expect(await screen.findByText(/10 sampled frames/)).toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Analyze Video' })).toBeEnabled()
+    fireEvent.change(screen.getByLabelText('Video detection FPS'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze Video' }))
+    await waitFor(() => expect(startVideoAnalysis).toHaveBeenCalledWith(videoAsset.media_id,
+      expect.objectContaining({ detection_fps: 1 })))
+    expect(await screen.findByLabelText('Saved video analysis')).toBeInTheDocument()
+  })
+
+  it('selects a saved camera snapshot in the shared image workspace', async () => {
+    vi.mocked(listMedia).mockResolvedValueOnce([]).mockResolvedValue([imageAsset])
+    renderApp('/workspace/live_camera')
+    await screen.findByText('API connected')
+    await waitFor(() => expect(listMedia).toHaveBeenCalledTimes(1))
+    fireEvent.click(await screen.findByRole('button', { name: 'Save test snapshot' }))
+    expect(await screen.findByTestId('image-viewer')).toBeInTheDocument()
+    expect(useMediaStore.getState().activeMediaId).toBe(imageAsset.media_id)
+  })
+
+  it('shows running video progress, requests cancellation, and allows retry', async () => {
+    vi.mocked(listMedia).mockResolvedValue([videoAsset])
+    vi.mocked(listVideoAnalyses).mockResolvedValue([{ ...videoAnalysis, status: 'running', processed_frames: 3, coverage_end_ms: 1500 }])
+    vi.mocked(getVideoJob).mockResolvedValue({ ...videoJob, status: 'running', stage: 'processing', processed_frames: 3, current_timestamp_ms: 1500 })
+    vi.mocked(cancelVideoJob).mockResolvedValue({ ...videoJob, status: 'cancel_requested' })
+    vi.mocked(startVideoAnalysis).mockResolvedValue({ ...videoJob, status: 'queued', stage: 'queued' })
+    renderApp('/workspace/analysis')
+    expect(await screen.findByRole('progressbar', { name: 'Video processing progress' })).toHaveValue(30)
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel job' }))
+    await waitFor(() => expect(cancelVideoJob).toHaveBeenCalledWith(videoJob.job_id))
+    fireEvent.click(screen.getByRole('button', { name: 'Analyze Video' }))
+    await waitFor(() => expect(startVideoAnalysis).toHaveBeenCalledWith(videoAsset.media_id, expect.any(Object)))
+  })
+
+  it('requires video consent and sends only the selected VQA range', async () => {
+    vi.mocked(listMedia).mockResolvedValue([videoAsset])
+    vi.mocked(askVideo).mockResolvedValue({ examined_timestamps_ms: [0, 1000], conversation: {
+      conversation_id: 'conversation', media_id: videoAsset.media_id,
+      created_at: '2026-10-30T00:00:00Z', updated_at: '2026-10-30T00:00:01Z', messages: [],
+    } })
+    renderApp('/workspace/vqa')
+    const question = await screen.findByLabelText('Question about video frames')
+    fireEvent.change(question, { target: { value: 'What is visible?' } })
+    const submit = screen.getByRole('button', { name: 'Ask selected frames' })
+    expect(submit).toBeDisabled()
+    fireEvent.change(screen.getByLabelText('Video range end'), { target: { value: '1' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Allow this video's selected frames/i }))
+    fireEvent.click(submit)
+    await waitFor(() => expect(askVideo).toHaveBeenCalledWith(videoAsset.media_id,
+      'What is visible?', 0, 1000, null, true))
+  })
+
+  it('keeps video VQA unavailable when OpenAI is unconfigured', async () => {
+    vi.mocked(listMedia).mockResolvedValue([videoAsset])
+    vi.mocked(getVisionProviders).mockResolvedValue({
+      vqa: { provider: 'openai', state: 'unconfigured', model: 'test' },
+      accessibility: { provider: 'openai', state: 'unconfigured', model: 'test' },
+    })
+    renderApp('/workspace/vqa')
+    fireEvent.change(await screen.findByLabelText('Question about video frames'),
+      { target: { value: 'What is visible?' } })
+    fireEvent.click(screen.getByRole('checkbox', { name: /Allow this video's selected frames/i }))
+    expect(screen.getByRole('button', { name: 'Ask selected frames' })).toBeDisabled()
+    expect(askVideo).not.toHaveBeenCalled()
   })
 
   it('generates a selected caption mode and restores saved Florence text', async () => {

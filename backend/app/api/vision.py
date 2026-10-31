@@ -22,6 +22,9 @@ def vision_capabilities(request: Request) -> dict[str, CapabilityStatus]:
     ready = request.app.state.detector.get_status().state == "ready"
     completed = request.app.state.caption_provider.successful_tasks
     vision_ready = request.app.state.multimodal_provider.status()["state"] == "available"
+    video_repository = request.app.state.video_service.repository
+    video_ready = video_repository.has_completed_analysis()
+    tracking_ready = video_repository.has_completed_analysis(tracking=True)
     return {
         "object_detection_image": "available" if ready else "unavailable",
         "image_object_counting": "available" if ready else "unavailable",
@@ -39,12 +42,12 @@ def vision_capabilities(request: Request) -> dict[str, CapabilityStatus]:
             name: "planned"
             for name in (
                 "natural_language_scene_analysis",
-                "video_object_detection",
-                "video_tracking",
-                "live_webcam_inference",
                 "advanced_segmentation",
             )
         },
+        "video_object_detection": "available" if video_ready else "unavailable",
+        "video_tracking": "available" if tracking_ready else "unavailable",
+        "live_webcam_inference": "available" if ready else "unavailable",
     }
 
 

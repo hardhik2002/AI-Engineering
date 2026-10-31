@@ -51,6 +51,12 @@ class MultimodalVisionProvider(Protocol):
     async def describe(
         self, image_url: str, purpose: str, context: str, audience: str, function: str
     ) -> VisionResult: ...
+    async def answer_frames(
+        self,
+        frames: list[tuple[int, str]],
+        question: str,
+        history: list[tuple[str, str]],
+    ) -> VisionResult: ...
 
 
 class OpenAIVisionProvider:
@@ -98,6 +104,7 @@ class OpenAIVisionProvider:
         instructions: str,
         history: list[tuple[str, str]],
         schema: type[VQAAnswer] | type[AccessibilityAnswer],
+        frames: list[tuple[int, str]] | None = None,
     ) -> VisionResult:
         client = self._get_client()
         from openai import (
@@ -110,19 +117,28 @@ class OpenAIVisionProvider:
 
         input_items = [{"role": "system", "content": instructions}]
         input_items.extend({"role": role, "content": text} for role, text in history[-8:])
-        input_items.append(
-            {
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": prompt},
+        content = [{"type": "input_text", "text": prompt}]
+        if frames:
+            for timestamp_ms, url in frames:
+                content.append(
+                    {"type": "input_text", "text": f"Actual sampled frame at {timestamp_ms} ms:"}
+                )
+                content.append(
                     {
                         "type": "input_image",
-                        "image_url": image_url,
+                        "image_url": url,
                         "detail": self.settings.openai_vision_detail,
-                    },
-                ],
-            }
-        )
+                    }
+                )
+        else:
+            content.append(
+                {
+                    "type": "input_image",
+                    "image_url": image_url,
+                    "detail": self.settings.openai_vision_detail,
+                }
+            )
+        input_items.append({"role": "user", "content": content})
         started = perf_counter()
         deadline = started + self.settings.openai_timeout_seconds
         for attempt in range(3):
@@ -253,6 +269,26 @@ class OpenAIVisionProvider:
             instructions=VQA_INSTRUCTIONS,
             history=history,
             schema=VQAAnswer,
+        )
+
+    async def answer_frames(
+        self,
+        frames: list[tuple[int, str]],
+        question: str,
+        history: list[tuple[str, str]],
+    ) -> VisionResult:
+        instructions = (
+            VQA_INSTRUCTIONS + " These are sampled still frames, not continuous video. "
+            "State which supplied timestamps support the answer. Do not infer motion "
+            "between frames or describe unexamined intervals as observed."
+        )
+        return await self._call(
+            image_url="",
+            prompt=question,
+            instructions=instructions,
+            history=history,
+            schema=VQAAnswer,
+            frames=frames,
         )
 
     async def describe(

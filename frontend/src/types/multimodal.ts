@@ -6,6 +6,7 @@ export interface VQAMessage {
   grounding_status: 'supported' | 'uncertain' | 'insufficient_evidence' | null
   uncertainty_note: string | null; provider: string | null; model: string | null
   duration_ms: number | null; usage: TokenUsage | null
+  frame_timestamps_ms?: number[] | null
 }
 export interface VQAConversation {
   conversation_id: string; media_id: string; created_at: string; updated_at: string

@@ -58,6 +58,7 @@ class VQAMessage(BaseModel):
     model: str | None = None
     duration_ms: float | None = None
     usage: TokenUsage | None = None
+    frame_timestamps_ms: list[int] | None = None
 
 
 class VQAConversation(BaseModel):

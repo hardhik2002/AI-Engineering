@@ -1,4 +1,4 @@
-export type CapabilityId = 'captioning' | 'vqa' | 'analysis' | 'objects' | 'accessibility' | 'media_upload' | 'image_preview' | 'video_preview'
+export type CapabilityId = 'captioning' | 'vqa' | 'analysis' | 'objects' | 'accessibility' | 'live_camera' | 'media_upload' | 'image_preview' | 'video_preview'
 export type CapabilityStatus = 'planned' | 'available' | 'unavailable'
 
 export interface Capability {

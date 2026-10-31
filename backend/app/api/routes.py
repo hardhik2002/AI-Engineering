@@ -9,7 +9,7 @@ router = APIRouter(prefix="/api/v1")
 def health(request: Request) -> HealthResponse:
     settings = request.app.state.settings
     return HealthResponse(
-        status="ok", service="visionlab-api", version="0.5.0", environment=settings.environment
+        status="ok", service="visionlab-api", version="0.7.0", environment=settings.environment
     )
 
 
@@ -46,4 +46,5 @@ def capabilities(request: Request) -> list[Capability]:
         Capability(id="media_upload", name="Media Upload", status="available", phase=2),
         Capability(id="image_preview", name="Image Preview", status="available", phase=2),
         Capability(id="video_preview", name="Video Preview", status="available", phase=2),
+        Capability(id="live_camera", name="Live Camera", status=detection_status, phase=7),
     ]

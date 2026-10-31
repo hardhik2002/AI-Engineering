@@ -38,6 +38,8 @@ export interface RegionOverlay { id: string; box: NormalizedBoundingBox; label?:
 export interface CaptionOverlay { text: string; box?: NormalizedBoundingBox }
 export interface TimestampedAnalysisResult {
   timestampMs: number
+  kind?: 'detection' | 'track' | 'caption' | 'vqa' | 'coverage' | 'failure'
+  title?: string
   detections?: DetectionOverlay[]
   regions?: RegionOverlay[]
   captions?: CaptionOverlay[]

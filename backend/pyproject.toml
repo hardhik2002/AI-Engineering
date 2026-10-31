@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "visionlab-api"
-version = "0.5.0"
+version = "0.7.0"
 description = "VisionLab AI API"
 requires-python = ">=3.12,<3.13"
 dependencies = [
@@ -21,6 +21,7 @@ dev = ["httpx>=0.28,<1", "pytest>=8,<10", "ruff>=0.11,<1"]
 vision = ["numpy>=2,<3", "torch>=2.5,<3", "torchvision>=0.20,<1", "ultralytics>=8.4.0,<9"]
 caption = ["transformers==4.57.6", "safetensors>=0.4.3,<1"]
 openai = ["openai>=2.54,<3"]
+video = ["av>=17,<18", "opencv-python-headless>=4.10,<5", "lap>=0.5.12,<1"]
 
 [tool.setuptools.packages.find]
 include = ["app*"]
@@ -30,6 +31,8 @@ testpaths = ["tests"]
 markers = [
   "real_model: requires local YOLO26 weights and a local photograph",
   "live_openai: sends one paid request only when explicitly opted in",
+  "real_video: requires installed local models and a short real video",
+  "real_live: requires installed YOLO weights and a local photograph; no physical webcam",
 ]
 
 [tool.ruff]

@@ -114,7 +114,9 @@ class AnalysisService:
                 error_code="unsupported_media_task",
             )
             raise MediaError(
-                "unsupported_media_task", "Video object detection is planned for Phase 6.", 422
+                "unsupported_media_task",
+                "Use the video analysis endpoint for uploaded videos.",
+                422,
             )
         if not path.is_file():
             log_event(

@@ -68,6 +68,20 @@ class Settings(BaseSettings):
         default=2, ge=1, le=4, validation_alias="OPENAI_MAX_CONCURRENCY"
     )
     openai_max_image_side: int = Field(default=1600, ge=512, le=4096)
+    video_detection_fps: float = Field(default=2.0, ge=0.25, le=8)
+    video_caption_interval_seconds: float = Field(default=10.0, ge=1, le=120)
+    video_max_processed_frames: int = Field(default=1800, ge=1, le=3600)
+    video_max_caption_frames: int = Field(default=60, ge=0, le=120)
+    video_analysis_concurrency: int = Field(default=1, ge=1, le=1)
+    video_max_vqa_frames: int = Field(default=6, ge=1, le=8)
+    video_max_decoded_frames: int = Field(default=100_000, ge=100, le=200_000)
+    live_max_width: int = Field(default=640, ge=160, le=1280)
+    live_max_height: int = Field(default=480, ge=120, le=960)
+    live_target_fps: float = Field(default=2, ge=0.25, le=8)
+    live_max_frame_bytes: int = Field(default=1_048_576, ge=16_384, le=4_194_304)
+    live_max_in_flight_frames: int = Field(default=1, ge=1, le=1)
+    live_max_active_sessions: int = Field(default=1, ge=1, le=4)
+    live_idle_timeout_seconds: int = Field(default=30, ge=5, le=300)
 
     @property
     def allowed_origins(self) -> list[str]:

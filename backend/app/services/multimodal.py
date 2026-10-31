@@ -4,6 +4,7 @@ import asyncio
 import base64
 import io
 import logging
+import math
 import sqlite3
 from datetime import UTC, datetime
 from pathlib import Path
@@ -15,6 +16,7 @@ from app.core.config import Settings
 from app.core.logging import log_event
 from app.providers.multimodal import MultimodalVisionProvider, VisionProviderError
 from app.repositories.multimodal import MultimodalRepository
+from app.repositories.video import VideoRepository
 from app.schemas.multimodal import (
     AccessibilityAnswer,
     AccessibilityEdit,
@@ -24,8 +26,10 @@ from app.schemas.multimodal import (
     VQAMessage,
     VQARequest,
 )
+from app.schemas.video import VideoCaption, VideoRefineRequest, VideoVQARequest, VideoVQAResponse
 from app.services.caption import CaptionService
 from app.services.media import MediaError, MediaService
+from app.services.video_decode import VideoDecodeError, nearest_frames
 
 logger = logging.getLogger("visionlab.multimodal")
 
@@ -69,6 +73,7 @@ class MultimodalService:
     ):
         self.settings, self.media, self.caption, self.provider = settings, media, caption, provider
         self.repository = MultimodalRepository(settings.database_path)
+        self.video_repository = VideoRepository(settings.database_path)
         self.capacity = asyncio.BoundedSemaphore(settings.openai_max_concurrency)
         self.active_conversations: set[str] = set()
 
@@ -86,6 +91,214 @@ class MultimodalService:
         return await asyncio.to_thread(
             prepare_image_data_url, path, size, self.settings.openai_max_image_side
         )
+
+    @staticmethod
+    def _frame_data_url(image: Image.Image) -> str:
+        output = io.BytesIO()
+        image.convert("RGB").save(output, "JPEG", quality=85)
+        return "data:image/jpeg;base64," + base64.b64encode(output.getvalue()).decode("ascii")
+
+    async def ask_video(self, media_id: str, body: VideoVQARequest) -> VideoVQAResponse:
+        asset, path, _ = await asyncio.to_thread(self.media.paths, media_id)
+        if asset.media_type != "video":
+            raise MediaError("unsupported_media_task", "Video Q&A requires an uploaded video.")
+        if not path.is_file():
+            raise MediaError("media_not_found", "Media content was not found.", 404)
+        if body.end_ms > (asset.duration_ms or 0):
+            raise MediaError("invalid_time_range", "Time range exceeds video duration.")
+        if not body.consent_external_transfer:
+            raise VisionProviderError(
+                "external_consent_required",
+                "Allow sampled video frames to be sent to OpenAI first.",
+                403,
+            )
+        if self.provider.status()["state"] == "unconfigured":
+            raise VisionProviderError(
+                "openai_not_configured", "OpenAI vision needs a backend API key."
+            )
+        conversation = None
+        if body.conversation_id:
+            self.media.validate_id(body.conversation_id)
+            conversation = await asyncio.to_thread(
+                self.repository.get_conversation, media_id, body.conversation_id
+            )
+            if conversation is None:
+                raise MediaError("conversation_not_found", "Conversation was not found.", 404)
+            if len(conversation.messages) >= 100:
+                raise VisionProviderError(
+                    "conversation_limit", "Start a new conversation after 50 questions.", 409
+                )
+        key = body.conversation_id or str(uuid4())
+        if key in self.active_conversations:
+            raise VisionProviderError("conversation_busy", "This conversation is processing.", 409)
+        if self.capacity.locked():
+            raise VisionProviderError("vision_busy", "OpenAI vision is busy. Retry shortly.", 429)
+        self.active_conversations.add(key)
+        await self.capacity.acquire()
+        try:
+            span = body.end_ms - body.start_ms
+            count = (
+                1
+                if span == 0
+                else min(self.settings.video_max_vqa_frames, max(2, math.ceil(span / 2000) + 1))
+            )
+            targets = (
+                [body.start_ms]
+                if count == 1
+                else [round(body.start_ms + span * index / (count - 1)) for index in range(count)]
+            )
+            try:
+                selected = await asyncio.to_thread(
+                    nearest_frames,
+                    path,
+                    asset,
+                    self.settings,
+                    targets,
+                    self.settings.openai_max_image_side,
+                )
+            except VideoDecodeError as exc:
+                raise MediaError(exc.code, exc.message, 422) from exc
+            if not selected:
+                raise MediaError("video_no_timestamps", "No timestamped video frames were found.")
+            frames = [(timestamp, self._frame_data_url(image)) for timestamp, image in selected]
+            examined = [timestamp for timestamp, _ in frames]
+            history = [
+                (
+                    message.role,
+                    f"{message.text} [sampled frames: {message.frame_timestamps_ms} ms]"
+                    if message.frame_timestamps_ms
+                    else message.text,
+                )
+                for message in (conversation.messages if conversation else [])
+            ][-8:]
+            log_event(
+                logger,
+                "video.vqa_started",
+                "START Video frame question",
+                media_id=media_id,
+                conversation_id=key,
+                frame_count=len(frames),
+            )
+            result = await self.provider.answer_frames(frames, body.question, history)
+            now = datetime.now(UTC)
+            user = VQAMessage(
+                message_id=str(uuid4()),
+                role="user",
+                text=body.question,
+                created_at=now,
+                frame_timestamps_ms=examined,
+            )
+            assistant = VQAMessage(
+                message_id=str(uuid4()),
+                role="assistant",
+                text=result.output.answer,
+                created_at=now,
+                grounding_status=result.output.grounding_status,
+                uncertainty_note=result.output.uncertainty_note,
+                frame_timestamps_ms=examined,
+                provider="openai",
+                model=result.model,
+                duration_ms=result.duration_ms,
+                usage=result.usage,
+            )
+            updated = VQAConversation(
+                conversation_id=key,
+                media_id=media_id,
+                created_at=conversation.created_at if conversation else now,
+                updated_at=now,
+                messages=[*(conversation.messages if conversation else []), user, assistant],
+            )
+            try:
+                await asyncio.to_thread(
+                    self.repository.save_turn, updated, user, assistant, conversation is None
+                )
+            except sqlite3.IntegrityError as exc:
+                raise MediaError("media_not_found", "Media item was not found.", 404) from exc
+            log_event(
+                logger,
+                "video.vqa_completed",
+                "COMPLETE Video frame answer saved",
+                media_id=media_id,
+                conversation_id=key,
+                frame_count=len(frames),
+                duration_ms=result.duration_ms,
+                total_tokens=result.usage.total_tokens if result.usage else None,
+            )
+            return VideoVQAResponse(conversation=updated, examined_timestamps_ms=examined)
+        finally:
+            self.capacity.release()
+            self.active_conversations.discard(key)
+
+    async def refine_video_caption(
+        self, media_id: str, analysis_id: str, body: VideoRefineRequest
+    ) -> VideoCaption:
+        asset, path, _ = await asyncio.to_thread(self.media.paths, media_id)
+        if asset.media_type != "video":
+            raise MediaError("unsupported_media_task", "Video refinement requires a video.")
+        if body.timestamp_ms > (asset.duration_ms or 0):
+            raise MediaError("invalid_timestamp", "Timestamp exceeds video duration.")
+        self.media.validate_id(analysis_id)
+        analysis = await asyncio.to_thread(
+            self.video_repository.get_analysis, analysis_id, media_id
+        )
+        if analysis is None:
+            raise MediaError("video_analysis_not_found", "Video analysis was not found.", 404)
+        if not body.consent_external_transfer:
+            raise VisionProviderError(
+                "external_consent_required",
+                "Allow this video frame to be sent to OpenAI first.",
+                403,
+            )
+        if self.provider.status()["state"] == "unconfigured":
+            raise VisionProviderError(
+                "openai_not_configured", "OpenAI vision needs a backend API key."
+            )
+        if self.capacity.locked():
+            raise VisionProviderError("vision_busy", "OpenAI vision is busy. Retry shortly.", 429)
+        await self.capacity.acquire()
+        try:
+            try:
+                selected = await asyncio.to_thread(
+                    nearest_frames,
+                    path,
+                    asset,
+                    self.settings,
+                    [body.timestamp_ms],
+                    self.settings.openai_max_image_side,
+                )
+            except VideoDecodeError as exc:
+                raise MediaError(exc.code, exc.message, 422) from exc
+            if not selected:
+                raise MediaError("video_no_timestamps", "No timestamped video frame was found.")
+            timestamp, image = selected[0]
+            result = await self.provider.describe(
+                self._frame_data_url(image), "complex", body.context, "", ""
+            )
+            text_value = (result.output.detailed_description or result.output.alt_text).strip()
+            if not text_value:
+                raise VisionProviderError(
+                    "openai_invalid_response", "OpenAI returned an empty description.", 502
+                )
+            record = VideoCaption(
+                caption_id=str(uuid4()),
+                analysis_id=analysis_id,
+                timestamp_ms=timestamp,
+                text=text_value,
+                source="openai",
+                model=result.model,
+                inference_ms=result.duration_ms,
+                usage=result.usage,
+                created_at=datetime.now(UTC),
+            )
+            await asyncio.to_thread(self.video_repository.add_caption, record)
+            log_event(logger, "video.refinement_completed",
+                      "COMPLETE Video frame description saved", media_id=media_id,
+                      analysis_id=analysis_id, current_timestamp_ms=timestamp,
+                      duration_ms=result.duration_ms,
+                      total_tokens=result.usage.total_tokens if result.usage else None)
+            return record
+        finally:
+            self.capacity.release()
 
     async def ask(self, media_id: str, body: VQARequest) -> VQAConversation:
         path, size = await self._image(media_id)

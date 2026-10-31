@@ -1,4 +1,4 @@
-# VisionLab AI architecture — Phase 5
+# VisionLab AI architecture — Phase 7
 
 The app remains a modular monolith. FastAPI serves uploaded media and vision results; React consumes the same typed JSON contract. SQLite stores media, analyses, conversations, and accessibility revisions. There is no authentication or external queue in this local development phase.
 
@@ -9,14 +9,21 @@ flowchart LR
   API --> Analysis[AnalysisService]
   API --> Caption[CaptionService]
   API --> Multi[MultimodalService]
+  API --> Video[VideoAnalysisService]
+  Browser -->|bounded JPEG frames, WebSocket| Live[LiveService]
+  Live -->|shared image detector semaphore| Detector
   Analysis -->|bounded semaphore| Detector[YOLO26Detector]
   Caption -->|bounded semaphore| Florence[Florence2CaptionProvider]
   Multi -->|bounded semaphore, consent| OpenAI[Optional OpenAI Responses]
+  Video -->|single managed worker| Decoder[PyAV PTS decode]
+  Decoder --> Tracker[YOLO26 ByteTrack]
+  Decoder --> Florence
   Detector --> Weights[(ignored model cache)]
   Florence --> Weights
   Analysis --> DB[(SQLite media and analyses)]
   Caption --> DB
   Multi --> DB
+  Video --> DB
   Media --> Files[(ignored original media)]
   Browser -->|saved results| API
 ```
@@ -34,6 +41,18 @@ The UI has one shared active media ID and analysis ID. Image Analysis and Object
 `MultimodalService` validates each media UUID and image type through `MediaService.paths`. It decodes an EXIF-oriented image off the event loop, checks stored dimensions, resizes, encodes a metadata-free JPEG data URL, and sends it only after an explicit consent flag. `OpenAIVisionProvider` lazily creates `AsyncOpenAI`, uses Responses structured parsing with `store=False`, and marks itself available only after successful parsing. A bounded semaphore caps concurrent requests. A provider interface allows replacement without changing routes or SQLite contracts. Errors disclose codes and safe messages, never provider payloads or credentials.
 
 New SQLite tables store conversations/messages and accessibility records with foreign keys to media and cascading deletion. A VQA turn commits the user question and successful provider answer together. A failed provider call persists neither. Accessibility records keep generated and edited values separately; edits use optimistic version checks. Decorative `alt=""` is produced locally. A saved Florence caption can be copied into a clearly identified editable suggestion, with no cloud transfer. All SQLite operations in async routes run in a worker thread. The browser stores consent per media ID and never calls cloud inference automatically. No video frame is sent to OpenAI in this phase.
+
+## Uploaded video workflows (Phase 6)
+
+The API validates a media UUID and enqueues a bounded in-process job. A managed thread streams PyAV frames, derives playback-relative timestamps from actual PTS and time base, and samples by elapsed media time. Only sampled frames become resized RGB images; source frames are never retained as a whole-video buffer. FFprobe supplies rotation metadata, and decoded display dimensions must match saved media dimensions. One cached YOLO26 model uses ByteTrack for each analysis; predictor state resets before a new video. Florence caption generation runs only at configured intervals through its existing semaphore. Every sampled frame and caption is stored in an indexed SQLite row, with model provenance, PTS, elapsed time, and optional track IDs. Jobs have persisted revisions, cancellation checkpoints, and restart recovery. Deleting media cascades to video rows.
+
+The browser queries a short frame time window around playback plus compact timeline markers. `requestVideoFrameCallback` uses displayed media timestamps when available; seeking and `timeupdate` provide a fallback. A proximity threshold clears stale boxes between sampled frames, and overlay dimensions follow the native video's letterboxed display region. Video Q&A selects at most six actual frames from a user-chosen range, removes metadata, requires consent, and saves the examined timestamps. Local accessible descriptions come from real Florence captions; optional cloud refinement is user-initiated. This single-process worker is intended for local development, not multi-user deployment or real-time video.
+
+## Live camera workflow (Phase 7)
+
+The React Live Camera route calls `getUserMedia({video, audio:false})` only after a user click. A native `<video>` previews the local stream; `requestVideoFrameCallback`, with a timed fallback, samples up to the chosen rate. A canvas encodes bounded JPEG frames. The browser sends one binary frame envelope at a time and waits for its matching frame result or skip before sending another. It checks `bufferedAmount` and discards old or unrelated results. A shared transformed element keeps preview, normalized canvas boxes, and object hit targets aligned under resizing, mirroring, and fullscreen. Stale results expire, and navigation or page hide stops tracks, timers, and the WebSocket. Snapshot capture is a separate user action that calls the existing image upload API, selecting that saved media for the five established modules.
+
+`LiveService` validates the frame header, JPEG size, decoded dimensions, and session ID off the ASGI event loop. FastAPI checks the explicit localhost Origin allowlist before accepting a socket and limits active sessions, message size, frame rate, and idle time. YOLO runs through the cached image detector and its existing semaphore via `asyncio.to_thread`, sharing capacity with image analysis. The Phase 6 video tracker owns a separate model and a single worker; at most one live/image detector task and one uploaded-video worker may run concurrently. There is no live tracking or automatic frame persistence. Structured live events carry session/frame IDs and timings, never JPEG bytes. The single-process limits are for localhost development and do not replace authentication or cross-process coordination for deployment.
 
 ## Florence captioning (Phase 4)
 

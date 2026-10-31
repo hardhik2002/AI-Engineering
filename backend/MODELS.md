@@ -1,5 +1,13 @@
 # Local model setup
 
+## Video models and runtime (Phase 6)
+
+Install `python -m pip install -e '.[dev,vision,caption,video]'` from `backend/`. The video extra adds PyAV for presentation timestamps, OpenCV headless for bounded frame conversion, and `lap` required by Ultralytics ByteTrack. Install weights with the existing `python -m app.scripts.install_model` and `python -m app.scripts.install_florence` commands. The API does not download model weights during a video job.
+
+One video worker lazily caches its YOLO26 model and clears the tracker's predictor state at the start of each analysis. It calls Ultralytics `track(..., persist=True, tracker="bytetrack.yaml")` sequentially on sampled frames. Florence shares its cached model and semaphore with image captioning. Tracking IDs can switch or disappear, especially at low FPS, and are not a count of distinct real-world objects. Frame boxes are normalized against the resized inference image and map back to the validated source display dimensions. PyAV PTS values, rather than nominal FPS, drive sampling and result timestamps.
+
+Default settings in `backend/.env.example`: `VISIONLAB_VIDEO_DETECTION_FPS=2`, `VISIONLAB_VIDEO_CAPTION_INTERVAL_SECONDS=10`, `VISIONLAB_VIDEO_MAX_PROCESSED_FRAMES=1800`, `VISIONLAB_VIDEO_MAX_CAPTION_FRAMES=60`, `VISIONLAB_VIDEO_ANALYSIS_CONCURRENCY=1`, `VISIONLAB_VIDEO_MAX_VQA_FRAMES=6`, and `VISIONLAB_VIDEO_MAX_DECODED_FRAMES=100000`. Lower detection FPS and fewer caption frames reduce CPU time, but may weaken track continuity or miss brief events. Actual run timings appear in saved job and frame records.
+
 ## Optional OpenAI vision (Phase 5)
 
 Install the `openai` extra with `python -m pip install -e '.[openai]'`, set `OPENAI_API_KEY` only in `backend/.env`, and restart. The default `OPENAI_VISION_MODEL=gpt-5.4-mini` uses the [Responses API](https://developers.openai.com/api/docs/guides/images-vision) with [Pydantic structured outputs](https://developers.openai.com/api/docs/guides/structured-outputs). This model supports image input and structured outputs according to its [official model page](https://developers.openai.com/api/docs/models/gpt-5.4-mini). No key is required for local models or decorative alt text.

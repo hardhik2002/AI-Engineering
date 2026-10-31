@@ -11,9 +11,11 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from starlette.routing import Match
 
+from app.api.live import router as live_router
 from app.api.media import router as media_router
 from app.api.multimodal import router as multimodal_router
 from app.api.routes import router
+from app.api.video import router as video_router
 from app.api.vision import router as vision_router
 from app.core.config import Settings, get_settings
 from app.core.logging import configure_logging, log_event, request_id_context, safe_traceback
@@ -25,11 +27,14 @@ from app.providers.multimodal import (
     OpenAIVisionProvider,
     VisionProviderError,
 )
+from app.providers.video_tracker import VideoTracker, YOLO26ByteTracker
 from app.schemas.media import ApiError, ApiErrorDetail
 from app.services.analysis import AnalysisService
 from app.services.caption import CaptionService
+from app.services.live import LiveService
 from app.services.media import MediaError, MediaService
 from app.services.multimodal import MultimodalService
+from app.services.video import VideoAnalysisService, VideoError
 
 logger = logging.getLogger("visionlab.http")
 
@@ -51,22 +56,34 @@ def create_app(
     detector: ObjectDetector | None = None,
     caption_provider: CaptionProvider | None = None,
     multimodal_provider: MultimodalVisionProvider | None = None,
+    video_tracker: VideoTracker | None = None,
 ) -> FastAPI:
     settings = settings or get_settings()
     configure_logging(settings)
     media_service = MediaService(settings)
     detector = detector or YOLO26Detector(settings)
     analysis_service = AnalysisService(settings, media_service, detector)
+    live_service = LiveService(settings, detector, analysis_service)
     caption_provider = caption_provider or Florence2CaptionProvider(settings)
     caption_service = CaptionService(settings, media_service, caption_provider)
     multimodal_provider = multimodal_provider or OpenAIVisionProvider(settings)
     multimodal_service = MultimodalService(
         settings, media_service, caption_service, multimodal_provider
     )
+    video_tracker = video_tracker or YOLO26ByteTracker(settings)
+    video_service = VideoAnalysisService(settings, media_service, video_tracker, caption_service)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI):
         media_service.initialize()
+        interrupted_jobs = video_service.recover()
+        if interrupted_jobs:
+            log_event(
+                logging.getLogger("visionlab.video"),
+                "video.jobs_recovered",
+                "COMPLETE Interrupted jobs recovered",
+                interrupted_jobs=interrupted_jobs,
+            )
         cuda_available: bool | None = None
         if settings.environment != "test" and find_spec("torch") is not None:
             try:
@@ -85,7 +102,7 @@ def create_app(
             logging.getLogger("visionlab.server"),
             "server.started",
             "COMPLETE VisionLab API started",
-            application_version="0.5.0",
+            application_version="0.7.0",
             environment=settings.environment,
             python_version=platform.python_version(),
             storage_ready=media_service.media_root.is_dir(),
@@ -104,7 +121,9 @@ def create_app(
                 else "unavailable",
                 "captioning": caption_provider.get_status()["state"],
                 "vqa": multimodal_provider.status()["state"],
-                "video_detection": "planned",
+                "video_detection": "ready"
+                if detector.get_status().state == "ready"
+                else "configured",
             },
         )
         log_event(
@@ -118,21 +137,24 @@ def create_app(
             device=model_status.device,
         )
         yield
+        video_service.shutdown()
         log_event(
             logging.getLogger("visionlab.server"),
             "server.stopped",
             "COMPLETE VisionLab API stopped",
         )
 
-    app = FastAPI(title="VisionLab AI API", version="0.5.0", lifespan=lifespan)
+    app = FastAPI(title="VisionLab AI API", version="0.7.0", lifespan=lifespan)
     app.state.settings = settings
     app.state.media_service = media_service
     app.state.detector = detector
     app.state.analysis_service = analysis_service
+    app.state.live_service = live_service
     app.state.caption_provider = caption_provider
     app.state.caption_service = caption_service
     app.state.multimodal_provider = multimodal_provider
     app.state.multimodal_service = multimodal_service
+    app.state.video_service = video_service
     app.add_middleware(UploadBodyLimitMiddleware, maximum_bytes=settings.max_video_bytes + 65536)
     app.add_middleware(
         CORSMiddleware,
@@ -170,6 +192,13 @@ def create_app(
     async def vision_provider_error_handler(
         request: Request, error: VisionProviderError
     ) -> JSONResponse:
+        request.state.error_code = error.code
+        request.state.error_message = error.message
+        body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
+        return JSONResponse(status_code=error.status_code, content=body.model_dump())
+
+    @app.exception_handler(VideoError)
+    async def video_error_handler(request: Request, error: VideoError) -> JSONResponse:
         request.state.error_code = error.code
         request.state.error_message = error.message
         body = ApiError(error=ApiErrorDetail(code=error.code, message=error.message))
@@ -282,6 +311,8 @@ def create_app(
     app.include_router(media_router)
     app.include_router(vision_router)
     app.include_router(multimodal_router)
+    app.include_router(video_router)
+    app.include_router(live_router)
     return app
 
 
